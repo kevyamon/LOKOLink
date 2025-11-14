@@ -1,0 +1,21 @@
+/* src/index.css */
+
+/*
+  Nous avons déplacé les styles du 'body' dans 'main.jsx'
+  pour qu'ils soient gérés par MUI (GlobalStyles).
+  Nous gardons ce fichier pour d'autres styles globaux si besoin.
+*/
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
