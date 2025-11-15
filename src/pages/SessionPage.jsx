@@ -13,10 +13,12 @@ import {
   FormControlLabel,
   FormControl,
   FormLabel,
-  InputAdornment, // Pour l'icône
+  InputAdornment,
 } from '@mui/material';
-import { Lock } from '@mui/icons-material'; // Icône pour le code
+import { Lock } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
+import Confetti from 'react-confetti';
+import { motion } from 'framer-motion'; // IMPORTER FRAMER MOTION
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
@@ -52,16 +54,72 @@ const pillButtonSx = (color = 'primary') => ({
     boxShadow: `0 6px 16px rgba(${color === 'primary' ? '25, 118, 210' : '46, 125, 50'}, 0.5)`,
   },
 });
-// --- Fin Styles ---
+
+// --- Hook Utilitaire pour la taille de l'écran (inchangé) ---
+const useWindowSize = () => {
+  const [windowSize, setWindowSize] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return windowSize;
+};
+
+// --- NOUVEAU COMPOSANT : AnimatedPhoneNumber ---
+const AnimatedPhoneNumber = ({ phoneNumber }) => {
+  const [displayedNumber, setDisplayedNumber] = useState('');
+  const [animationStarted, setAnimationStarted] = useState(false);
+
+  useEffect(() => {
+    if (phoneNumber && !animationStarted) {
+      setAnimationStarted(true);
+      setDisplayedNumber(''); // Réinitialise pour une nouvelle animation
+      const digits = phoneNumber.split('');
+      let index = 0;
+
+      // Durée totale de l'animation : 5 secondes (5000 ms)
+      // Nombre de chiffres : 10
+      // Délai entre chaque chiffre : 5000ms / 10 chiffres = 500ms par chiffre
+      const interval = setInterval(() => {
+        if (index < digits.length) {
+          setDisplayedNumber((prev) => prev + digits[index]);
+          index++;
+        } else {
+          clearInterval(interval);
+        }
+      }, 500); // 500ms de délai entre chaque chiffre
+
+      return () => clearInterval(interval);
+    }
+  }, [phoneNumber, animationStarted]);
+
+  return (
+    <Typography variant="h5" sx={{ mt: 2, fontWeight: 'bold' }}>
+      Contact : {displayedNumber}
+    </Typography>
+  );
+};
 
 const SessionPage = () => {
   const { id: sessionID } = useParams();
   const navigate = useNavigate();
+  const { width, height } = useWindowSize();
 
   // --- États ---
   const [godchildName, setGodchildName] = useState('');
   const [godchildGender, setGodchildGender] = useState('');
-  const [sessionCode, setSessionCode] = useState(''); // 1. NOUVEL ÉTAT
+  const [sessionCode, setSessionCode] = useState('');
   
   const [sessionName, setSessionName] = useState('...');
   const [loading, setLoading] = useState(false);
@@ -69,6 +127,8 @@ const SessionPage = () => {
   
   const [pairingResult, setPairingResult] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
+
+  const [recycleConfetti, setRecycleConfetti] = useState(true);
 
   // 1. Charger les détails de la session (inchangé)
   useEffect(() => {
@@ -78,13 +138,9 @@ const SessionPage = () => {
         setSessionName(data.sessionName);
       } catch (err) {
         console.error('Erreur chargement session', err);
-        // On récupère le message d'erreur (ex: "Session terminée")
         const message = err.response?.data?.message || "Cette session n'existe pas.";
         setError(message);
-        // Si la session est terminée, on affiche le message sans rediriger tout de suite
-        if (message.includes('terminée')) {
-           // On ne redirige pas, on laisse l'erreur s'afficher
-        } else {
+        if (!message.includes('terminée')) {
            setTimeout(() => navigate('/'), 3000);
         }
       }
@@ -92,7 +148,17 @@ const SessionPage = () => {
     fetchSessionDetails();
   }, [sessionID, navigate]);
 
-  // 2. Gestion de la soumission
+  // 2. Gestion du Timer Confettis (inchangé)
+  useEffect(() => {
+    if (pairingResult) {
+      const timer = setTimeout(() => {
+        setRecycleConfetti(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [pairingResult]);
+
+  // 3. Gestion de la soumission (inchangé)
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!godchildGender || !sessionCode) {
@@ -103,58 +169,75 @@ const SessionPage = () => {
     setError(null);
 
     try {
-      // 3. Envoyer le 'sessionCode' au backend (Plan P3)
       const { data } = await api.post('/api/pairings/find', {
         godchildName,
         godchildGender,
         sessionID,
-        sessionCode, // Ajouté
+        sessionCode,
       });
 
-      // 4. SUCCÈS (Plan P4: Retrouver OU Matcher)
       setLoading(false);
       setPairingResult({
         sponsorName: data.sponsorName,
         sponsorPhone: data.sponsorPhone,
       });
+      setRecycleConfetti(true);
 
     } catch (err) {
-      // 5. ÉCHEC (Code LOKO incorrect, Session terminée, Déjà un parrain)
       setLoading(false);
       const errorMessage = err.response?.data?.message || 'Une erreur est survenue.';
       setError(errorMessage);
-      setShowErrorModal(true); // Affiche le modal d'erreur
+      setShowErrorModal(true);
     }
   };
 
-  // 6. Gestion du modal d'erreur (inchangé)
   const handleCloseErrorModal = () => {
     setShowErrorModal(false);
     setError(null);
-    // On ne vide pas le nom, au cas où c'est juste le code qui est faux
   };
 
   // --- Rendu ---
 
-  // Cas 1: Résultat (Félicitations)
+  // Cas 1: Résultat (Félicitations + Confettis + Animations)
   if (pairingResult) {
     const genreText = godchildGender === 'Homme' ? 'le Filleul' : 'la Filleule';
     return (
       <PageTransition>
+        <Confetti
+          width={width}
+          height={height}
+          numberOfPieces={400}
+          gravity={0.15}
+          recycle={recycleConfetti}
+        />
+        
         <FormContainer maxWidth="md">
           <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="h3" component="div" gutterBottom>
+              🥳🎉🎊
+            </Typography>
             <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 'bold' }}>
               Félicitations, {godchildName} !
             </Typography>
             <Typography variant="h6" sx={{ mt: 3 }}>
               Vous êtes {genreText} de :
             </Typography>
-            <Typography variant="h4" color="primary" sx={{ mt: 2, fontWeight: 'bold' }}>
-              {pairingResult.sponsorName}
-            </Typography>
-            <Typography variant="h5" sx={{ mt: 2 }}>
-              Contact : {pairingResult.sponsorPhone}
-            </Typography>
+            
+            {/* ANIMATION BATTEMENT DE CŒUR (NOM DU PARRAIN) */}
+            <motion.div
+              initial={{ scale: 1 }}
+              animate={{ scale: [1, 1.05, 1] }} // Battement léger (agrandir, puis revenir)
+              transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut" }} // Animation infinie et douce
+              style={{ display: 'inline-block' }} // Pour que l'animation n'affecte pas tout le bloc
+            >
+              <Typography variant="h3" color="primary" sx={{ mt: 2, mb: 2, fontWeight: '900', textTransform: 'uppercase' }}>
+                {pairingResult.sponsorName}
+              </Typography>
+            </motion.div>
+
+            {/* ANIMATION NUMÉRO DE TÉLÉPHONE CHIFFRE PAR CHIFFRE */}
+            <AnimatedPhoneNumber phoneNumber={pairingResult.sponsorPhone} />
+
             <Button
               variant="contained"
               onClick={() => navigate('/')}
@@ -168,7 +251,7 @@ const SessionPage = () => {
     );
   }
   
-  // Si la session est introuvable ou terminée (erreur de useEffect)
+  // Cas Erreur critique (inchangé)
   if (error && !showErrorModal && !pairingResult) {
      return (
         <PageTransition>
@@ -186,7 +269,7 @@ const SessionPage = () => {
      );
   }
 
-  // Cas 2: Formulaire de recherche
+  // Cas 2: Formulaire de recherche (inchangé)
   return (
     <PageTransition>
       <>
@@ -199,7 +282,6 @@ const SessionPage = () => {
           </Typography>
 
           <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
-            {/* Champ Nom Complet */}
             <TextField
               label="Entrez votre nom complet"
               fullWidth
@@ -210,7 +292,6 @@ const SessionPage = () => {
               sx={{ ...pillTextFieldSx, mb: 2 }}
             />
             
-            {/* 7. NOUVEAU CHAMP "Code LOKO" */}
             <TextField
               label="Code LOKO de la session"
               helperText="Code fourni par votre délégué."
@@ -229,7 +310,6 @@ const SessionPage = () => {
               }}
             />
 
-            {/* Cases à cocher (Genre) */}
             <FormControl component="fieldset" required disabled={loading} error={Boolean(error && error.includes('genre'))} sx={{ ml: 2, mb: 1 }}>
               <FormLabel component="legend">Je suis :</FormLabel>
               <RadioGroup
@@ -243,14 +323,12 @@ const SessionPage = () => {
               </RadioGroup>
             </FormControl>
 
-            {/* Messages d'erreur (inline) */}
             {error && !showErrorModal && (
               <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>
                 {error}
               </Alert>
             )}
 
-            {/* Bouton de soumission */}
             <Button
               type="submit"
               variant="contained"
@@ -264,7 +342,6 @@ const SessionPage = () => {
           </Box>
         </FormContainer>
 
-        {/* Modal d'erreur (Code incorrect, Déjà un parrain, etc.) */}
         <AnimatedModal
           open={showErrorModal}
           onClose={handleCloseErrorModal}

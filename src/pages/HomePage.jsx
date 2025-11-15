@@ -12,7 +12,6 @@ import {
   CardContent,
   CardActionArea,
   TextField,
-  // Modal, // 1. SUPPRIMÉ
   Stack,
   Button,
   Snackbar,
@@ -20,14 +19,12 @@ import {
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { PageTransition } from '../components/PageTransition';
-import AnimatedModal from '../components/AnimatedModal'; // 2. IMPORTÉ
-
-// const modalStyle = { ... }; // 3. SUPPRIMÉ
+import AnimatedModal from '../components/AnimatedModal';
 
 const HomePage = () => {
   const navigate = useNavigate();
 
-  // --- États (inchangés) ---
+  // --- États ---
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -44,7 +41,7 @@ const HomePage = () => {
   const [deleteError, setDeleteError] = useState(null);
   const [snackbarMessage, setSnackbarMessage] = useState(null);
 
-  // --- Fonctions (inchangées) ---
+  // --- Fonctions ---
   const fetchSessions = async () => {
     try {
       const { data } = await api.get('/api/sessions/active');
@@ -93,7 +90,7 @@ const HomePage = () => {
       isLongPress.current = true;
       setSessionToDelete(session);
       setConfirmDeleteModal(true);
-    }, 5000);
+    }, 3000); // MODIFICATION ICI : Délai réduit à 3000ms (3 secondes)
   };
   
   const handleMouseUp = () => {
@@ -234,9 +231,7 @@ const HomePage = () => {
           </Grid>
         )}
 
-        {/* 4. MODALS REFACTORISÉS (CODE COMPLET) */}
-
-        {/* MODAL: Confirmation Filleul (Partie 4) */}
+        {/* MODAL: Confirmation Filleul */}
         {selectedSession && (
           <AnimatedModal open={modalOpen} onClose={handleModalClose}>
             <Typography variant="h6" component="h2" gutterBottom sx={{ fontWeight: 'bold' }}>
@@ -256,7 +251,7 @@ const HomePage = () => {
           </AnimatedModal>
         )}
 
-        {/* MODAL 1: "Êtes-vous sûr ?" (Partie 5) */}
+        {/* MODAL 1: "Êtes-vous sûr ?" */}
         <AnimatedModal open={confirmDeleteModal} onClose={() => setConfirmDeleteModal(false)}>
           <Typography variant="h6" component="h2" gutterBottom sx={{ fontWeight: 'bold' }}>
             Désactiver la session ?
@@ -275,7 +270,7 @@ const HomePage = () => {
           </Stack>
         </AnimatedModal>
 
-        {/* MODAL 2: "Mot de passe" (Partie 5) */}
+        {/* MODAL 2: "Mot de passe" */}
         <AnimatedModal open={passwordModal} onClose={handleClosePasswordModal}>
           <Box component="form" onSubmit={handlePasswordSubmit}>
             <Typography variant="h6" component="h2" gutterBottom sx={{ fontWeight: 'bold' }}>
@@ -312,7 +307,6 @@ const HomePage = () => {
           </Box>
         </AnimatedModal>
 
-        {/* Snackbar (inchangé) */}
         <Snackbar
           open={Boolean(snackbarMessage)}
           autoHideDuration={4000}

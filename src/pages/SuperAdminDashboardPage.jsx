@@ -24,19 +24,23 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Tooltip, // Ajout pour le "copier"
+  Tooltip,
+  Switch,
+  InputAdornment,
 } from '@mui/material';
 import {
   Edit,
   DeleteForever,
   People,
   Person,
-  Phone,
-  EditNote,
   VpnKey,
   AddCircle,
   CopyAll,
-  Check, // Pour le feedback "copié"
+  Check,
+  EditNote,
+  Lock,
+  PowerSettingsNew, // Icône pour le status
+  CloudUpload, // Icône upload
 } from '@mui/icons-material';
 import api from '../services/api';
 import { PageTransition } from '../components/PageTransition';
@@ -59,29 +63,38 @@ function TabPanel(props) {
 }
 
 const SuperAdminDashboardPage = () => {
-  // État pour les onglets
+  // États globaux
   const [tabValue, setTabValue] = useState(0);
-
-  // États de la page
   const [sessions, setSessions] = useState([]);
   const [users, setUsers] = useState([]);
   const [codes, setCodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null); // Pour le feedback (copier, générer)
-  const [copiedCode, setCopiedCode] = useState(null); // Pour le feedback "Copié"
+  const [success, setSuccess] = useState(null);
+  
+  // États Feedback visuel
+  const [copiedCode, setCopiedCode] = useState(null); // Pour les codes d'invitation
+  const [copiedSessionCode, setCopiedSessionCode] = useState(null); // Pour les codes LOKO
 
-  // États pour les modals
+  // États Modals Session
   const [sessionToDelete, setSessionToDelete] = useState(null);
-  const [sessionToEdit, setSessionToEdit] = useState(null);
-  const [loadingEditModal, setLoadingEditModal] = useState(false);
+  const [sessionToEdit, setSessionToEdit] = useState(null); // Pour éditer les parrains
   const [sponsorToEdit, setSponsorToEdit] = useState(null);
   const [sponsorData, setSponsorData] = useState({ name: '', phone: '' });
+  const [loadingAction, setLoadingAction] = useState(false);
 
-  // État pour la génération de code
+  // État Modal Création Session
+  const [createSessionModalOpen, setCreateSessionModalOpen] = useState(false);
+  const [newSessionData, setNewSessionData] = useState({
+    sessionName: '',
+    sessionCode: '',
+    sponsorsList: '',
+  });
+
+  // État Génération Code
   const [newCodeRole, setNewCodeRole] = useState('delegue');
 
-  // --- Fonctions de chargement ---
+  // --- CHARGEMENT DES DONNÉES ---
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -96,7 +109,7 @@ const SuperAdminDashboardPage = () => {
       setCodes(codesRes.data);
     } catch (err) {
       console.error('Erreur chargement dashboard:', err);
-      setError(err.response?.data?.message || 'Impossible de charger les données admin.');
+      setError(err.response?.data?.message || 'Impossible de charger les données.');
     } finally {
       setLoading(false);
     }
@@ -106,94 +119,135 @@ const SuperAdminDashboardPage = () => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // --- GESTION DES SESSIONS ---
-  const openDeleteModal = (session) => setSessionToDelete(session);
-  const closeDeleteModal = () => setSessionToDelete(null);
-  const handleDeleteSession = async () => {
-    if (!sessionToDelete) return;
-    setLoading(true); // Bloque la page
+  // --- 1. GESTION DU STATUS SESSION (ACTIVER/DÉSACTIVER) ---
+  const handleToggleSessionStatus = async (session) => {
+    // Optimistic UI update (mise à jour visuelle immédiate)
+    const originalSessions = [...sessions];
+    const updatedSessions = sessions.map(s => 
+      s._id === session._id ? { ...s, isActive: !s.isActive } : s
+    );
+    setSessions(updatedSessions);
+
     try {
-      await api.delete(`/api/admin/sessions/${sessionToDelete._id}`);
-      closeDeleteModal();
-      await fetchAllData(); // Recharge tout
+      await api.patch(`/api/admin/sessions/${session._id}/toggle-status`);
+      // Optionnel: mettre un petit toast de succès
     } catch (err) {
-      setError('Erreur lors de la suppression.');
-      setLoading(false);
+      // Revert en cas d'erreur
+      setSessions(originalSessions);
+      setError("Erreur lors du changement de statut.");
     }
   };
 
-  const openEditModal = (session) => {
-    // Pas besoin d'API call, on a déjà l'info
-    setSessionToEdit(session);
+  // --- 2. GESTION DE LA CRÉATION DE SESSION ---
+  const handleOpenCreateSession = () => setCreateSessionModalOpen(true);
+  const handleCloseCreateSession = () => {
+    setCreateSessionModalOpen(false);
+    setNewSessionData({ sessionName: '', sessionCode: '', sponsorsList: '' });
   };
-  const closeEditModal = () => setSessionToEdit(null);
-  
-  const openSponsorModal = (sponsor) => {
-    setSponsorToEdit(sponsor);
-    setSponsorData({ name: sponsor.name, phone: sponsor.phone });
-  };
-  const closeSponsorModal = () => setSponsorToEdit(null);
 
-  const handleSponsorDataChange = (e) => {
-    setSponsorData({ ...sponsorData, [e.target.name]: e.target.value });
+  const handleCreateSessionChange = (e) => {
+    setNewSessionData({ ...newSessionData, [e.target.name]: e.target.value });
   };
-  
+
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (file && file.type === 'text/plain') {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setNewSessionData(prev => ({ ...prev, sponsorsList: e.target.result }));
+      };
+      reader.readAsText(file);
+    }
+    event.target.value = null;
+  };
+
+  const handleCreateSessionSubmit = async (e) => {
+    e.preventDefault();
+    setLoadingAction(true);
+    try {
+      await api.post('/api/sessions/create', newSessionData);
+      setSuccess(`Session "${newSessionData.sessionName}" créée avec succès !`);
+      handleCloseCreateSession();
+      await fetchAllData(); // Recharger la liste
+    } catch (err) {
+      setError(err.response?.data?.message || "Erreur lors de la création.");
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  // --- 3. GESTION DES ACTIONS CLASSIQUES ---
+  const handleDeleteSession = async () => {
+    if (!sessionToDelete) return;
+    setLoadingAction(true);
+    try {
+      await api.delete(`/api/admin/sessions/${sessionToDelete._id}`);
+      setSessionToDelete(null);
+      await fetchAllData();
+    } catch (err) {
+      setError('Erreur suppression session.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   const handleUpdateSponsor = async (e) => {
     e.preventDefault();
     if (!sponsorToEdit || !sessionToEdit) return;
-    setLoadingEditModal(true);
+    setLoadingAction(true);
     try {
-      const { data: updatedSession } = await api.put(
+      const { data } = await api.put(
         `/api/admin/sessions/${sessionToEdit._id}/sponsors/${sponsorToEdit._id}`,
         sponsorData
       );
-      // Met à jour la session dans la liste principale
-      setSessions(prevSessions => 
-        prevSessions.map(s => s._id === updatedSession.session._id ? updatedSession.session : s)
+      // Mise à jour locale
+      const updatedSessions = sessions.map(s => 
+        s._id === data.session._id ? data.session : s
       );
-      setSessionToEdit(updatedSession.session); // Met à jour le modal
-      closeSponsorModal();
+      setSessions(updatedSessions);
+      setSessionToEdit(data.session); // MàJ Modal
+      setSponsorToEdit(null);
     } catch (err) {
-      console.error('Erreur MàJ parrain:', err);
-      // On pourrait mettre une alerte dans le modal
+      console.error(err);
     } finally {
-      setLoadingEditModal(false);
+      setLoadingAction(false);
     }
   };
-  
-  // --- GESTION DES CODES ---
+
+  // --- 4. GESTION DES CODES ---
   const handleGenerateCode = async (e) => {
     e.preventDefault();
-    setLoading(true); // Utilise le loading global
+    setLoadingAction(true);
     try {
       const { data } = await api.post('/api/admin/generate-code', { role: newCodeRole });
       setSuccess(`Code généré: ${data.code.code}`);
-      await fetchAllData(); // Recharger tout
+      await fetchAllData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Erreur lors de la génération.');
+      setError(err.response?.data?.message || 'Erreur génération code.');
     } finally {
-      setLoading(false);
+      setLoadingAction(false);
     }
   };
 
   const handleDeleteCode = async (codeId) => {
-    if (window.confirm("Supprimer ce code ? Il ne pourra plus être utilisé.")) {
-      setLoading(true);
+    if(window.confirm("Supprimer ce code ?")) {
       try {
         await api.delete(`/api/admin/codes/${codeId}`);
-        await fetchAllData(); // Recharger tout
-      } catch (err) {
-        setError(err.response?.data?.message || 'Erreur suppression code.');
-      } finally {
-        setLoading(false);
-      }
+        await fetchAllData();
+      } catch (err) { setError("Erreur suppression code."); }
     }
   };
 
-  const handleCopyCode = (code) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCode(code); // Feedback visuel sur le bouton
-    setTimeout(() => setCopiedCode(null), 2000);
+  // --- Helpers Copie ---
+  const copyToClipboard = (text, type) => {
+    navigator.clipboard.writeText(text);
+    if (type === 'invite') {
+      setCopiedCode(text);
+      setTimeout(() => setCopiedCode(null), 2000);
+    } else {
+      setCopiedSessionCode(text);
+      setTimeout(() => setCopiedSessionCode(null), 2000);
+    }
   };
 
   // --- Rendu ---
@@ -213,51 +267,97 @@ const SuperAdminDashboardPage = () => {
             Dashboard Super-Admin
           </Typography>
           
-          {error && <Alert severity="error" sx={{ borderRadius: '16px', mb: 2 }}>{error}</Alert>}
-          {success && <Alert severity="success" sx={{ borderRadius: '16px', mb: 2 }}>{success}</Alert>}
+          {error && <Alert severity="error" onClose={() => setError(null)} sx={{ borderRadius: '16px', mb: 2 }}>{error}</Alert>}
+          {success && <Alert severity="success" onClose={() => setSuccess(null)} sx={{ borderRadius: '16px', mb: 2 }}>{success}</Alert>}
 
-          {/* SÉLECTEUR D'ONGLETS */}
+          {/* --- BARRE D'ACTIONS RAPIDES --- */}
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              startIcon={<AddCircle />}
+              onClick={handleOpenCreateSession}
+              sx={{ borderRadius: '50px', fontWeight: 'bold', boxShadow: 3 }}
+            >
+              Nouvelle Session
+            </Button>
+          </Box>
+
           <Paper sx={{ borderRadius: '16px 16px 0 0', bgcolor: 'rgba(255, 255, 255, 0.9)' }}>
             <Tabs 
               value={tabValue} 
-              onChange={(e, newValue) => setTabValue(newValue)} 
+              onChange={(e, v) => setTabValue(v)} 
               indicatorColor="primary" 
               textColor="primary" 
               variant="fullWidth"
             >
-              <Tab label={`Sessions (${sessions.length})`} />
-              <Tab label={`Utilisateurs (${users.length})`} />
-              <Tab label={`Codes d'invitation (${codes.length})`} />
+              <Tab label="Sessions" />
+              <Tab label="Utilisateurs" />
+              <Tab label="Codes Invitation" />
             </Tabs>
           </Paper>
 
-          {/* PANNEAUX D'ONGLETS */}
-          <Box sx={{ bgcolor: 'rgba(255, 255, 255, 0.9)', borderRadius: '0 0 16px 16px', boxShadow: 3 }}>
+          <Box sx={{ bgcolor: 'rgba(255, 255, 255, 0.9)', borderRadius: '0 0 16px 16px', boxShadow: 3, minHeight: '400px' }}>
             
-            {/* PANNEAU 0: SESSIONS */}
+            {/* --- TAB SESSIONS --- */}
             <TabPanel value={tabValue} index={0}>
               <List>
                 {sessions.map((session) => (
                   <React.Fragment key={session._id}>
                     <ListItem
+                      alignItems="flex-start"
                       secondaryAction={
-                        <>
+                        <Stack direction="row" alignItems="center" spacing={1}>
+                          {/* Switch Actif/Inactif */}
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mr: 2 }}>
+                            <Switch 
+                              checked={session.isActive}
+                              onChange={() => handleToggleSessionStatus(session)}
+                              color="success"
+                              size="small"
+                            />
+                            <Typography variant="caption" color={session.isActive ? "success.main" : "text.disabled"}>
+                              {session.isActive ? "ACTIVE" : "OFF"}
+                            </Typography>
+                          </Box>
+
                           <Tooltip title="Modifier Parrains">
-                            <IconButton edge="end" aria-label="éditer" onClick={() => openEditModal(session)}><Edit /></IconButton>
+                            <IconButton onClick={() => setSessionToEdit(session)}><Edit /></IconButton>
                           </Tooltip>
                           <Tooltip title="Supprimer Session">
-                            <IconButton edge="end" aria-label="supprimer" onClick={() => openDeleteModal(session)}><DeleteForever color="error" /></IconButton>
+                            <IconButton onClick={() => setSessionToDelete(session)}><DeleteForever color="error" /></IconButton>
                           </Tooltip>
-                        </>
+                        </Stack>
                       }
                     >
                       <ListItemIcon><People /></ListItemIcon>
                       <ListItemText
-                        primary={session.sessionName}
-                        secondary={`Créé par: ${session.createdBy?.email || 'N/A'} | ${session.sponsors.length} parrain(s)`}
-                        primaryTypographyProps={{ fontWeight: 'bold' }}
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="subtitle1" fontWeight="bold">{session.sessionName}</Typography>
+                            <Chip 
+                              icon={<Lock fontSize="small"/>} 
+                              label={session.sessionCode} 
+                              size="small" 
+                              variant="outlined"
+                              onClick={() => copyToClipboard(session.sessionCode, 'session')}
+                              deleteIcon={copiedSessionCode === session.sessionCode ? <Check /> : <CopyAll />}
+                              onDelete={() => copyToClipboard(session.sessionCode, 'session')}
+                              color={copiedSessionCode === session.sessionCode ? "success" : "default"}
+                              sx={{ cursor: 'pointer' }}
+                            />
+                          </Box>
+                        }
+                        secondary={
+                          <>
+                            <Typography component="span" variant="body2" color="text.primary">
+                              Créé par: {session.createdBy?.email || 'Inconnu'}
+                            </Typography>
+                            <br />
+                            {` ${session.sponsors.length} parrains inscrits`}
+                          </>
+                        }
                       />
-                      <Chip label={session.isActive ? 'Active' : 'Inactive'} color={session.isActive ? 'success' : 'default'} size="small" />
                     </ListItem>
                     <Divider variant="inset" component="li" />
                   </React.Fragment>
@@ -265,7 +365,7 @@ const SuperAdminDashboardPage = () => {
               </List>
             </TabPanel>
 
-            {/* PANNEAU 1: UTILISATEURS */}
+            {/* --- TAB UTILISATEURS --- */}
             <TabPanel value={tabValue} index={1}>
               <List>
                 {users.map((user) => (
@@ -273,11 +373,11 @@ const SuperAdminDashboardPage = () => {
                     <ListItemIcon><Person /></ListItemIcon>
                     <ListItemText
                       primary={user.email}
-                      secondary={`Rôle: ${user.role} | Expiration: ${user.accountExpiresAt ? new Date(user.accountExpiresAt).toLocaleDateString() : 'Jamais'}`}
+                      secondary={`Rôle: ${user.role.toUpperCase()} | Expiration: ${user.accountExpiresAt ? new Date(user.accountExpiresAt).toLocaleDateString() : 'Jamais'}`}
                     />
                     <Chip 
-                      label={user.isActive ? (user.accountExpiresAt && new Date(user.accountExpiresAt) < new Date() ? 'Expiré' : 'Actif') : 'Inactif'}
-                      color={user.isActive ? (user.accountExpiresAt && new Date(user.accountExpiresAt) < new Date() ? 'warning' : 'success') : 'default'}
+                      label={user.isActive ? 'Actif' : 'Inactif'}
+                      color={user.isActive ? 'success' : 'default'}
                       size="small" 
                     />
                   </ListItem>
@@ -285,167 +385,148 @@ const SuperAdminDashboardPage = () => {
               </List>
             </TabPanel>
 
-            {/* PANNEAU 2: CODES D'INVITATION */}
+            {/* --- TAB CODES --- */}
             <TabPanel value={tabValue} index={2}>
-              {/* Formulaire de génération */}
               <Box component="form" onSubmit={handleGenerateCode} sx={{ display: 'flex', gap: 2, mb: 3, p: 2, border: '1px dashed grey', borderRadius: '16px' }}>
-                <FormControl fullWidth>
-                  <InputLabel id="role-select-label">Rôle à générer</InputLabel>
-                  <Select
-                    labelId="role-select-label"
-                    value={newCodeRole}
-                    label="Rôle à générer"
-                    onChange={(e) => setNewCodeRole(e.target.value)}
-                    size="small"
-                  >
-                    <MenuItem value="delegue">Délégué (Expire en 9 mois)</MenuItem>
-                    <MenuItem value="superadmin">Super-Admin (Expire en 9 mois)</MenuItem>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Rôle à générer</InputLabel>
+                  <Select value={newCodeRole} label="Rôle à générer" onChange={(e) => setNewCodeRole(e.target.value)}>
+                    <MenuItem value="delegue">Délégué</MenuItem>
+                    <MenuItem value="superadmin">Super-Admin</MenuItem>
                   </Select>
                 </FormControl>
-                <Button type="submit" variant="contained" disabled={loading} startIcon={<AddCircle />}>
-                  {loading ? <CircularProgress size={24} /> : 'Générer'}
+                <Button type="submit" variant="contained" disabled={loadingAction} startIcon={<AddCircle />}>
+                  Générer
                 </Button>
               </Box>
-              
-              {/* Liste des codes */}
               <List>
                 {codes.map((code) => (
                   <ListItem key={code._id}
                     secondaryAction={
                       !code.isUsed && (
-                        <Tooltip title="Supprimer ce code">
-                          <IconButton edge="end" aria-label="supprimer" onClick={() => handleDeleteCode(code._id)} disabled={loading}>
-                            <DeleteForever color="error" />
-                          </IconButton>
-                        </Tooltip>
+                        <IconButton onClick={() => handleDeleteCode(code._id)}><DeleteForever color="error" /></IconButton>
                       )
                     }
                   >
                     <ListItemIcon><VpnKey color={code.isUsed ? 'disabled' : 'success'} /></ListItemIcon>
                     <ListItemText
                       primary={code.code}
-                      secondary={`Rôle: ${code.role} | Créé par: ${code.createdBy?.email || 'N/A'}`}
-                      sx={{ textDecoration: code.isUsed ? 'line-through' : 'none', color: code.isUsed ? 'text.disabled' : 'text.primary' }}
+                      secondary={code.isUsed ? "Utilisé" : `Pour: ${code.role}`}
+                      sx={{ textDecoration: code.isUsed ? 'line-through' : 'none' }}
                     />
                     <Button 
                       size="small" 
                       startIcon={copiedCode === code.code ? <Check /> : <CopyAll />} 
-                      onClick={() => handleCopyCode(code.code)} 
+                      onClick={() => copyToClipboard(code.code, 'invite')}
                       disabled={code.isUsed}
-                      color={copiedCode === code.code ? 'success' : 'primary'}
                     >
-                      {copiedCode === code.code ? 'Copié!' : 'Copier'}
+                      {copiedCode === code.code ? 'Copié' : 'Copier'}
                     </Button>
                   </ListItem>
                 ))}
               </List>
             </TabPanel>
-
           </Box>
         </Container>
 
-        {/* MODAL 1: Confirmation de Suppression */}
-        <AnimatedModal 
-          open={Boolean(sessionToDelete)} 
-          onClose={closeDeleteModal} 
-          maxWidth="md"
-        >
-          <Typography variant="h6" component="h2" gutterBottom>
-            Supprimer la session ?
+        {/* --- MODAL CRÉATION SESSION --- */}
+        <AnimatedModal open={createSessionModalOpen} onClose={handleCloseCreateSession} maxWidth="md">
+          <Typography variant="h5" component="h2" gutterBottom fontWeight="bold" align="center">
+            Créer une Nouvelle Session
           </Typography>
-          <Typography>
-            Êtes-vous sûr de vouloir supprimer définitivement la session
-            <strong> "{sessionToDelete?.sessionName}"</strong> ?
-          </Typography>
-          <Typography color="error" sx={{ mt: 1 }}>
-            Cette action est irréversible et supprimera aussi tous les binômes associés.
-          </Typography>
-          <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
-            <Button variant="outlined" onClick={closeDeleteModal}>
-              Annuler
-            </Button>
-            <Button variant="contained" color="error" onClick={handleDeleteSession} disabled={loading}>
-              {loading ? <CircularProgress size={24} /> : 'Supprimer Définitivement'}
-            </Button>
-          </Stack>
-        </AnimatedModal>
-
-        {/* MODAL 2: Édition de Session (Liste des Parrains) */}
-        <AnimatedModal 
-          open={Boolean(sessionToEdit)} 
-          onClose={closeEditModal} 
-          maxWidth="md"
-        >
-          <Typography variant="h6" component="h2" gutterBottom>
-            Éditer la session: {sessionToEdit?.sessionName}
-          </Typography>
-          {loadingEditModal ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', my: 3 }}>
-              <CircularProgress />
-            </Box>
-          ) : (
-            <List>
-              {sessionToEdit?.sponsors.map((sponsor) => (
-                <ListItem
-                  key={sponsor._id}
-                  secondaryAction={
-                    <Tooltip title="Modifier ce parrain">
-                      <IconButton edge="end" aria-label="éditer parrain" onClick={() => openSponsorModal(sponsor)}>
-                        <EditNote />
-                      </IconButton>
-                    </Tooltip>
-                  }
-                >
-                  <ListItemIcon>
-                    <Person />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={sponsor.name}
-                    secondary={sponsor.phone}
-                  />
-                </ListItem>
-              ))}
-            </List>
-          )}
-          <Button variant="outlined" onClick={closeEditModal} sx={{ mt: 2 }}>
-            Fermer
-          </Button>
-        </AnimatedModal>
-
-        {/* MODAL 3: Édition d'un Parrain (Formulaire) */}
-        <AnimatedModal open={Boolean(sponsorToEdit)} onClose={closeSponsorModal}>
-          <Typography variant="h6" component="h2" gutterBottom>
-            Modifier Parrain/Marraine
-          </Typography>
-          <Box component="form" onSubmit={handleUpdateSponsor}>
+          <Box component="form" onSubmit={handleCreateSessionSubmit} sx={{ mt: 2 }}>
             <TextField
-              label="Nom Complet"
-              name="name"
-              value={sponsorData.name}
-              onChange={handleSponsorDataChange}
+              label="Nom de la session (ex: Info Groupe A)"
+              name="sessionName"
               fullWidth
               required
-              sx={{ mt: 2 }}
+              value={newSessionData.sessionName}
+              onChange={handleCreateSessionChange}
+              sx={{ mb: 2 }}
             />
             <TextField
-              label="Téléphone"
-              name="phone"
-              value={sponsorData.phone}
-              onChange={handleSponsorDataChange}
+              label="Code LOKO (Secret pour les filleuls)"
+              name="sessionCode"
               fullWidth
               required
-              sx={{ mt: 2 }}
+              value={newSessionData.sessionCode}
+              onChange={handleCreateSessionChange}
+              sx={{ mb: 2 }}
+              InputProps={{
+                endAdornment: <InputAdornment position="end"><Lock /></InputAdornment>,
+              }}
             />
-            <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
-              <Button variant="outlined" onClick={closeSponsorModal}>
-                Annuler
-              </Button>
-              <Button variant="contained" type="submit" disabled={loadingEditModal}>
-                {loadingEditModal ? <CircularProgress size={24} /> : 'Enregistrer'}
+            <TextField
+              label="Liste des Parrains (Nom, Téléphone)"
+              name="sponsorsList"
+              fullWidth
+              required
+              multiline
+              rows={6}
+              value={newSessionData.sponsorsList}
+              onChange={handleCreateSessionChange}
+              placeholder="Jean Dupont, 0102030405"
+              helperText="Un parrain par ligne. Format: Nom, Téléphone"
+              sx={{ mb: 2 }}
+            />
+            <Button
+              variant="outlined"
+              component="label"
+              fullWidth
+              startIcon={<CloudUpload />}
+              sx={{ mb: 3 }}
+            >
+              Importer depuis un fichier .txt
+              <input type="file" hidden accept=".txt" onChange={handleFileUpload} />
+            </Button>
+            <Stack direction="row" spacing={2} justifyContent="flex-end">
+              <Button onClick={handleCloseCreateSession} variant="outlined">Annuler</Button>
+              <Button type="submit" variant="contained" disabled={loadingAction}>
+                {loadingAction ? <CircularProgress size={24} /> : 'Créer la Session'}
               </Button>
             </Stack>
           </Box>
         </AnimatedModal>
+
+        {/* --- MODALS EXISTANTS (Suppression & Édition) --- */}
+        <AnimatedModal open={Boolean(sessionToDelete)} onClose={() => setSessionToDelete(null)}>
+          <Typography variant="h6">Supprimer définitivement ?</Typography>
+          <Typography sx={{ mt: 2 }}>Session: <strong>{sessionToDelete?.sessionName}</strong></Typography>
+          <Typography color="error" variant="caption">Action irréversible.</Typography>
+          <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+            <Button onClick={() => setSessionToDelete(null)}>Annuler</Button>
+            <Button variant="contained" color="error" onClick={handleDeleteSession}>Supprimer</Button>
+          </Stack>
+        </AnimatedModal>
+
+        <AnimatedModal open={Boolean(sessionToEdit)} onClose={() => setSessionToEdit(null)} maxWidth="md">
+          <Typography variant="h6" gutterBottom>Parrains de : {sessionToEdit?.sessionName}</Typography>
+          <List sx={{ maxHeight: '300px', overflow: 'auto' }}>
+            {sessionToEdit?.sponsors.map((sponsor) => (
+              <ListItem key={sponsor._id} secondaryAction={
+                <IconButton onClick={() => { setSponsorToEdit(sponsor); setSponsorData({ name: sponsor.name, phone: sponsor.phone }); }}>
+                  <EditNote />
+                </IconButton>
+              }>
+                <ListItemText primary={sponsor.name} secondary={sponsor.phone} />
+              </ListItem>
+            ))}
+          </List>
+          <Button fullWidth onClick={() => setSessionToEdit(null)} sx={{ mt: 2 }}>Fermer</Button>
+        </AnimatedModal>
+
+        <AnimatedModal open={Boolean(sponsorToEdit)} onClose={() => setSponsorToEdit(null)}>
+          <Typography variant="h6">Modifier Parrain</Typography>
+          <Box component="form" onSubmit={handleUpdateSponsor} sx={{ mt: 2 }}>
+            <TextField label="Nom" name="name" fullWidth value={sponsorData.name} onChange={(e) => setSponsorData({...sponsorData, name: e.target.value})} sx={{ mb: 2 }} />
+            <TextField label="Téléphone" name="phone" fullWidth value={sponsorData.phone} onChange={(e) => setSponsorData({...sponsorData, phone: e.target.value})} />
+            <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+              <Button onClick={() => setSponsorToEdit(null)}>Annuler</Button>
+              <Button type="submit" variant="contained">Sauvegarder</Button>
+            </Stack>
+          </Box>
+        </AnimatedModal>
+
       </>
     </PageTransition>
   );
