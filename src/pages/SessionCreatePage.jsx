@@ -9,14 +9,14 @@ import {
   CircularProgress,
   Alert,
   Fade,
-  InputAdornment, // Pour l'icône
+  InputAdornment,
+  Tooltip,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { Lock } from '@mui/icons-material'; // Icône pour le code
+import { Lock, Group } from '@mui/icons-material'; // Import icône Group
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
-// Nous n'avons pas besoin de useAuth ici, le "garde" dans App.jsx fait le travail
 
 // --- Styles Gélule ---
 const pillTextFieldSx = {
@@ -54,7 +54,8 @@ const SessionCreatePage = () => {
 
   // États du formulaire
   const [sessionName, setSessionName] = useState('');
-  const [sessionCode, setSessionCode] = useState(''); // 1. NOUVEL ÉTAT
+  const [sessionCode, setSessionCode] = useState('');
+  const [expectedGodchildCount, setExpectedGodchildCount] = useState(''); // NOUVEAU
   const [sponsorsList, setSponsorsList] = useState('');
 
   // États de retour
@@ -62,7 +63,7 @@ const SessionCreatePage = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  // Gestion du téléversement de fichier .txt (inchangé)
+  // Gestion du téléversement de fichier .txt
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (file && file.type === 'text/plain') {
@@ -85,22 +86,26 @@ const SessionCreatePage = () => {
     setSuccess(null);
 
     try {
-      // 2. Envoyer le 'sessionCode' au backend
+      // Envoyer toutes les données, y compris l'estimation
       const { data } = await api.post('/api/sessions/create', {
         sessionName,
         sponsorsList,
-        sessionCode, // Ajouté
+        sessionCode,
+        expectedGodchildCount: expectedGodchildCount ? parseInt(expectedGodchildCount) : 0,
       });
 
-      // SUCCÈS (inchangé)
+      // SUCCÈS
       setLoading(false);
       setSuccess(
         `Session "${data.session.sessionName}" créée avec succès ! Vous allez être redirigé.`
       );
       setError(null);
+      // Reset des champs
       setSessionName('');
       setSessionCode('');
+      setExpectedGodchildCount('');
       setSponsorsList('');
+      
       setTimeout(() => {
         navigate('/');
       }, 3000);
@@ -133,24 +138,47 @@ const SessionCreatePage = () => {
             sx={{ ...pillTextFieldSx, mb: 2 }}
           />
           
-          {/* 3. NOUVEAU CHAMP "Code LOKO" */}
-          <TextField
-            label="Code LOKO (ex: IACC2025)"
-            helperText="Le code secret que les filleuls devront entrer pour rejoindre cette session."
-            fullWidth
-            required
-            value={sessionCode}
-            onChange={(e) => setSessionCode(e.target.value)}
-            disabled={loading}
-            sx={{ ...pillTextFieldSx, mb: 3 }}
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end" sx={{ mr: 1 }}>
-                  <Lock />
-                </InputAdornment>
-              ),
-            }}
-          />
+          <Box sx={{ display: 'flex', gap: 2, mb: 3, flexDirection: { xs: 'column', sm: 'row' } }}>
+            {/* Champ Code LOKO */}
+            <TextField
+              label="Code LOKO (Secret)"
+              helperText="Code pour les filleuls."
+              fullWidth
+              required
+              value={sessionCode}
+              onChange={(e) => setSessionCode(e.target.value)}
+              disabled={loading}
+              sx={{ ...pillTextFieldSx, flex: 1 }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end" sx={{ mr: 1 }}>
+                    <Lock />
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            {/* NOUVEAU : Estimation */}
+            <Tooltip title="Si vous avez plus de parrains que de filleuls, indiquez ici le nombre de filleuls attendus. Le système créera automatiquement des binômes pour que tous les parrains participent." arrow>
+              <TextField
+                label="Nb. estimé de filleuls"
+                helperText="Optionnel. Pour gérer le surplus."
+                type="number"
+                fullWidth
+                value={expectedGodchildCount}
+                onChange={(e) => setExpectedGodchildCount(e.target.value)}
+                disabled={loading}
+                sx={{ ...pillTextFieldSx, flex: 1 }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end" sx={{ mr: 1 }}>
+                      <Group />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Tooltip>
+          </Box>
 
           {/* Champ Liste des Parrains/Marraines */}
           <TextField
