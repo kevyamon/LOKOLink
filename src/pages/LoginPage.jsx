@@ -1,4 +1,4 @@
-  // src/pages/LoginPage.jsx
+// src/pages/LoginPage.jsx
 
 import React, { useState } from 'react';
 import {
@@ -10,16 +10,16 @@ import {
   Alert,
   InputAdornment,
   IconButton,
-  Link as MuiLink, // Pour le lien "S'inscrire"
+  Link as MuiLink,
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext'; // 1. Importer le "cerveau"
+import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
 
-// --- Styles Gélule (copiés ici pour la cohérence) ---
+// --- Styles Gélule ---
 const pillTextFieldSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: '50px',
@@ -52,7 +52,7 @@ const pillButtonSx = (color = 'primary') => ({
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { login } = useAuth(); // 2. Récupérer la fonction 'login' du contexte
+  const { login } = useAuth();
 
   // États du formulaire
   const [email, setEmail] = useState('');
@@ -74,21 +74,21 @@ const LoginPage = () => {
     setError(null);
 
     try {
-      // 3. Appeler la nouvelle route de login unifiée
+      // 1. Appel API
       const { data } = await api.post('/api/auth/login', { email, password });
 
-      // 4. SUCCÈS: On passe les infos au "cerveau" (AuthContext)
+      // 2. Connexion dans le contexte
       login(data); // data = { _id, email, role, token }
 
       setLoading(false);
       
-      // 5. Rediriger en fonction du rôle
+      // 3. REDIRECTION (C'est ici qu'on a modifié)
       if (data.role === 'delegue') {
-        navigate('/delegue/creer');
+        navigate('/delegue/sessions'); // <--- On va vers la liste des sessions
       } else if (data.role === 'superadmin' || data.role === 'eternal') {
         navigate('/superadmin/dashboard');
       } else {
-        navigate('/'); // Fallback
+        navigate('/');
       }
 
     } catch (err) {
@@ -166,7 +166,6 @@ const LoginPage = () => {
             {loading ? <CircularProgress size={24} color="inherit" /> : 'Connexion'}
           </Button>
 
-          {/* Lien vers la page d'inscription */}
           <Typography variant="body2" align="center">
             Pas encore de compte ?{' '}
             <MuiLink component={RouterLink} to="/register" fontWeight="bold">

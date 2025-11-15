@@ -22,11 +22,12 @@ const EternalRegisterPage = React.lazy(() => import('./pages/EternalRegisterPage
 
 // Délégué & Admin
 const SessionCreatePage = React.lazy(() => import('./pages/SessionCreatePage'));
-const DelegateDashboardPage = React.lazy(() => import('./pages/DelegateDashboardPage')); // <--- NOUVEAU
+const DelegateDashboardPage = React.lazy(() => import('./pages/DelegateDashboardPage'));
+const DelegateSessionsPage = React.lazy(() => import('./pages/DelegateSessionsPage')); // <--- NOUVEAU
 const SuperAdminDashboardPage = React.lazy(() => import('./pages/SuperAdminDashboardPage'));
 
 // Invitation (Parrain)
-const JoinSessionPage = React.lazy(() => import('./pages/JoinSessionPage')); // <--- NOUVEAU
+const JoinSessionPage = React.lazy(() => import('./pages/JoinSessionPage'));
 
 // Spinner
 const LazySpinner = () => (
@@ -78,7 +79,6 @@ function App() {
             <Route index element={<HomePage />} />
             <Route path="session/:id" element={<SessionPage />} />
             
-            {/* Routes d'invitation (Pour les parrains) */}
             <Route path="rejoindre/:code" element={<JoinSessionPage />} />
             <Route path="rejoindre" element={<JoinSessionPage />} />
 
@@ -90,7 +90,8 @@ function App() {
             {/* --- Routes Protégées (Délégué) --- */}
             <Route element={<ProtectedRoute />}>
               <Route path="delegue/creer" element={<SessionCreatePage />} />
-              <Route path="delegue/dashboard/:id" element={<DelegateDashboardPage />} /> {/* <--- NOUVEAU */}
+              <Route path="delegue/sessions" element={<DelegateSessionsPage />} /> {/* <--- NOUVEAU */}
+              <Route path="delegue/dashboard/:id" element={<DelegateDashboardPage />} />
             </Route>
 
             {/* --- Routes Protégées (Admin) --- */}
@@ -101,7 +102,7 @@ function App() {
             {/* --- 404 --- */}
             <Route path="*" element={<NotFoundPage />} />
             
-            {/* Redirections legacy */}
+            {/* Legacy redirects */}
             <Route path="delegue/login" element={<Navigate to="/login" replace />} />
             <Route path="superadmin/login" element={<Navigate to="/login" replace />} />
 
