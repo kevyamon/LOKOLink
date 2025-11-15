@@ -11,9 +11,11 @@ import {
   Fade,
   InputAdornment,
   Tooltip,
+  LinearProgress, // Pour la barre de progression OCR
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Group } from '@mui/icons-material'; // Import icône Group
+import { Lock, Group, CameraAlt, CloudUpload } from '@mui/icons-material'; // Ajout CameraAlt
+import { createWorker } from 'tesseract.js'; // Import du moteur OCR
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
@@ -55,15 +57,71 @@ const SessionCreatePage = () => {
   // États du formulaire
   const [sessionName, setSessionName] = useState('');
   const [sessionCode, setSessionCode] = useState('');
-  const [expectedGodchildCount, setExpectedGodchildCount] = useState(''); // NOUVEAU
+  const [expectedGodchildCount, setExpectedGodchildCount] = useState('');
   const [sponsorsList, setSponsorsList] = useState('');
 
   // États de retour
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  
+  // État OCR
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
-  // Gestion du téléversement de fichier .txt
+  // --- GESTION OCR (PHOTO) ---
+  const handlePhotoUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setIsOcrProcessing(true);
+    setOcrProgress(0);
+    setError(null);
+
+    try {
+      const worker = await createWorker({
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            setOcrProgress(parseInt(m.progress * 100));
+          }
+        },
+      });
+
+      // Chargement du langage (Français)
+      await worker.loadLanguage('fra');
+      await worker.initialize('fra');
+
+      // Reconnaissance
+      const { data: { text } } = await worker.recognize(file);
+      
+      // Nettoyage du texte brut
+      // On garde les lignes qui ont du texte, on essaie de nettoyer un peu
+      const cleanText = text
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 2) // Filtre les bruits
+        .join('\n');
+
+      if (cleanText.length === 0) {
+        throw new Error("Aucun texte lisible détecté. Essayez une photo plus claire.");
+      }
+
+      // On ajoute le texte à la suite s'il y en a déjà
+      setSponsorsList((prev) => (prev ? prev + '\n' + cleanText : cleanText));
+      
+      await worker.terminate();
+      setSuccess("Liste importée ! Vérifiez et complétez les numéros si besoin.");
+
+    } catch (err) {
+      console.error(err);
+      setError("Erreur de lecture de l'image. Assurez-vous que la photo est nette et bien éclairée.");
+    } finally {
+      setIsOcrProcessing(false);
+      event.target.value = null; // Reset input
+    }
+  };
+
+  // --- GESTION FICHIER TXT (Inchangé) ---
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (file && file.type === 'text/plain') {
@@ -78,7 +136,7 @@ const SessionCreatePage = () => {
     event.target.value = null;
   };
 
-  // Gestion de la soumission du formulaire
+  // --- SOUMISSION ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -86,7 +144,6 @@ const SessionCreatePage = () => {
     setSuccess(null);
 
     try {
-      // Envoyer toutes les données, y compris l'estimation
       const { data } = await api.post('/api/sessions/create', {
         sessionName,
         sponsorsList,
@@ -94,13 +151,12 @@ const SessionCreatePage = () => {
         expectedGodchildCount: expectedGodchildCount ? parseInt(expectedGodchildCount) : 0,
       });
 
-      // SUCCÈS
       setLoading(false);
       setSuccess(
         `Session "${data.session.sessionName}" créée avec succès ! Vous allez être redirigé.`
       );
       setError(null);
-      // Reset des champs
+      
       setSessionName('');
       setSessionCode('');
       setExpectedGodchildCount('');
@@ -114,7 +170,7 @@ const SessionCreatePage = () => {
       setLoading(false);
       setError(
         err.response?.data?.message ||
-          'Erreur serveur. Vérifiez vos données (le nom de session existe peut-être déjà).'
+          'Erreur serveur. Vérifiez vos données.'
       );
     }
   };
@@ -127,19 +183,19 @@ const SessionCreatePage = () => {
         </Typography>
 
         <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
-          {/* Champ Nom de la session */}
+          {/* Nom de session */}
           <TextField
             label="Nom de la session (ex: IACC Groupe A)"
             fullWidth
             required
             value={sessionName}
             onChange={(e) => setSessionName(e.target.value)}
-            disabled={loading}
+            disabled={loading || isOcrProcessing}
             sx={{ ...pillTextFieldSx, mb: 2 }}
           />
           
           <Box sx={{ display: 'flex', gap: 2, mb: 3, flexDirection: { xs: 'column', sm: 'row' } }}>
-            {/* Champ Code LOKO */}
+            {/* Code LOKO */}
             <TextField
               label="Code LOKO (Secret)"
               helperText="Code pour les filleuls."
@@ -147,19 +203,15 @@ const SessionCreatePage = () => {
               required
               value={sessionCode}
               onChange={(e) => setSessionCode(e.target.value)}
-              disabled={loading}
+              disabled={loading || isOcrProcessing}
               sx={{ ...pillTextFieldSx, flex: 1 }}
               InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end" sx={{ mr: 1 }}>
-                    <Lock />
-                  </InputAdornment>
-                ),
+                endAdornment: <InputAdornment position="end" sx={{ mr: 1 }}><Lock /></InputAdornment>,
               }}
             />
 
-            {/* NOUVEAU : Estimation */}
-            <Tooltip title="Si vous avez plus de parrains que de filleuls, indiquez ici le nombre de filleuls attendus. Le système créera automatiquement des binômes pour que tous les parrains participent." arrow>
+            {/* Estimation */}
+            <Tooltip title="Si vous avez plus de parrains, indiquez le nombre de filleuls. Le système créera des binômes." arrow>
               <TextField
                 label="Nb. estimé de filleuls"
                 helperText="Optionnel. Pour gérer le surplus."
@@ -167,20 +219,16 @@ const SessionCreatePage = () => {
                 fullWidth
                 value={expectedGodchildCount}
                 onChange={(e) => setExpectedGodchildCount(e.target.value)}
-                disabled={loading}
+                disabled={loading || isOcrProcessing}
                 sx={{ ...pillTextFieldSx, flex: 1 }}
                 InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end" sx={{ mr: 1 }}>
-                      <Group />
-                    </InputAdornment>
-                  ),
+                  endAdornment: <InputAdornment position="end" sx={{ mr: 1 }}><Group /></InputAdornment>,
                 }}
               />
             </Tooltip>
           </Box>
 
-          {/* Champ Liste des Parrains/Marraines */}
+          {/* Zone de texte principale */}
           <TextField
             label="Liste des Parrains/Marraines"
             variant="outlined"
@@ -190,9 +238,9 @@ const SessionCreatePage = () => {
             rows={10}
             value={sponsorsList}
             onChange={(e) => setSponsorsList(e.target.value)}
-            disabled={loading}
-            placeholder="Collez votre liste en respectant ce format : Nom Complet, Numéro de Téléphone (un par ligne)."
-            helperText="Format attendu : Nom Complet, Numéro de Téléphone (un par ligne)."
+            disabled={loading || isOcrProcessing}
+            placeholder="Format : Nom Complet, Numéro (un par ligne). Si vous scannez une liste sans numéros, ajoutez-les manuellement ici."
+            helperText="Vérifiez bien les données après un scan ou un import."
             sx={{
               '& .MuiOutlinedInput-root': {
                 borderRadius: '24px',
@@ -201,39 +249,73 @@ const SessionCreatePage = () => {
             }}
           />
 
-          {/* Bouton de téléversement .txt */}
-          <Button
-            variant="outlined"
-            component="label"
-            fullWidth
-            sx={{
-              mt: 2,
-              borderRadius: '50px',
-              padding: '10px 0',
-              fontWeight: 'bold',
-            }}
-            disabled={loading}
-          >
-            Ou téléverser un fichier .txt
-            <input
-              type="file"
-              hidden
-              accept=".txt, text/plain"
-              onChange={handleFileUpload}
-            />
-          </Button>
+          {/* BARRE D'OUTILS D'IMPORTATION */}
+          <Box sx={{ mt: 2, display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+            
+            {/* BOUTON SCAN PHOTO (NOUVEAU) */}
+            <Button
+              variant="contained"
+              component="label"
+              fullWidth
+              color="secondary" // Couleur différente pour distinguer
+              startIcon={isOcrProcessing ? <CircularProgress size={20} color="inherit"/> : <CameraAlt />}
+              sx={{
+                borderRadius: '50px',
+                padding: '10px 0',
+                fontWeight: 'bold',
+                background: 'linear-gradient(45deg, #FE6B8B 30%, #FF8E53 90%)', // Un petit style sympa
+                boxShadow: '0 3px 5px 2px rgba(255, 105, 135, .3)',
+              }}
+              disabled={loading || isOcrProcessing}
+            >
+              {isOcrProcessing ? `Analyse en cours... ${ocrProgress}%` : "Scanner une liste (Photo)"}
+              <input
+                type="file"
+                hidden
+                accept="image/*"
+                capture="environment" // Ouvre la caméra arrière sur mobile par défaut
+                onChange={handlePhotoUpload}
+              />
+            </Button>
+
+            {/* BOUTON IMPORT TXT (EXISTANT) */}
+            <Button
+              variant="outlined"
+              component="label"
+              fullWidth
+              startIcon={<CloudUpload />}
+              sx={{
+                borderRadius: '50px',
+                padding: '10px 0',
+                fontWeight: 'bold',
+              }}
+              disabled={loading || isOcrProcessing}
+            >
+              Importer fichier .txt
+              <input
+                type="file"
+                hidden
+                accept=".txt, text/plain"
+                onChange={handleFileUpload}
+              />
+            </Button>
+          </Box>
+
+          {/* Feedback OCR */}
+          {isOcrProcessing && (
+             <Box sx={{ width: '100%', mt: 2 }}>
+               <LinearProgress variant="determinate" value={ocrProgress} sx={{ height: 10, borderRadius: 5 }} />
+               <Typography variant="caption" align="center" display="block" sx={{ mt: 1 }}>
+                 L'intelligence artificielle lit votre document... Veuillez patienter.
+               </Typography>
+             </Box>
+          )}
 
           {/* Messages de retour */}
-          {error && (
-            <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>
-              {error}
-            </Alert>
-          )}
+          {error && <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>{error}</Alert>}
           {success && (
             <Fade in={true}>
-              <Alert severity="success" sx={{ mt: 2, borderRadius: '16px' }}>
-                {success}
-              </Alert>
+              <Alert severity="success" sx={{ mt: 2, borderRadius: '16px' }}>{success}</Alert>
             </Fade>
           )}
 
@@ -243,7 +325,7 @@ const SessionCreatePage = () => {
             variant="contained"
             fullWidth
             size="large"
-            disabled={loading}
+            disabled={loading || isOcrProcessing}
             sx={{ mt: 3, ...pillButtonSx('success') }}
           >
             {loading ? <CircularProgress size={24} color="inherit" /> : 'Créer la session'}
