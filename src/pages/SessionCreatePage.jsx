@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Group, CameraAlt, Image as ImageIcon, CloudUpload } from '@mui/icons-material';
-import { createWorker } from 'tesseract.js'; 
+import { createWorker, PSM } from 'tesseract.js'; // Import PSM (Page Segmentation Mode)
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
@@ -50,6 +50,60 @@ const pillButtonSx = (color = 'primary') => ({
   },
 });
 
+// --- FONCTION DE PRÉ-TRAITEMENT D'IMAGE (Magie noire) ---
+// Cette fonction prend l'image brute, la passe en noir et blanc et augmente le contraste
+// pour que Tesseract arrête de lire les ombres.
+const preprocessImage = (imageFile) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = URL.createObjectURL(imageFile);
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // On redimensionne si l'image est trop géante (optimisation perf mobile)
+      const MAX_WIDTH = 1500;
+      const scale = MAX_WIDTH / img.width;
+      canvas.width = scale < 1 ? MAX_WIDTH : img.width;
+      canvas.height = scale < 1 ? img.height * scale : img.height;
+
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // Accès aux pixels
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+
+      // Algorithme de Binarisation (Seuil) + Grayscale
+      // On transforme tout ce qui n'est pas très sombre en blanc pur
+      // Et ce qui est sombre en noir pur.
+      for (let i = 0; i < data.length; i += 4) {
+        // Niveau de gris = 0.3*R + 0.59*G + 0.11*B
+        const gray = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
+        
+        // Seuil de contraste (Threshold) : 120 est une bonne moyenne
+        // Si le pixel est plus clair que 120, il devient BLANC (255)
+        // Sinon il devient NOIR (0)
+        const value = gray > 130 ? 255 : 0;
+
+        data[i] = value;     // R
+        data[i + 1] = value; // G
+        data[i + 2] = value; // B
+        // Alpha (data[i+3]) reste inchangé
+      }
+
+      ctx.putImageData(imgData, 0, 0);
+      
+      // Retourne l'image traitée en Blob
+      canvas.toBlob((blob) => {
+        resolve(blob);
+      }, 'image/jpeg', 0.9);
+    };
+    
+    img.onerror = (err) => reject(err);
+  });
+};
+
 const SessionCreatePage = () => {
   const navigate = useNavigate();
 
@@ -66,80 +120,86 @@ const SessionCreatePage = () => {
   
   // État OCR
   const [ocrProgress, setOcrProgress] = useState(0);
-  const [ocrStatus, setOcrStatus] = useState(''); // Pour afficher "Téléchargement..." ou "Lecture..."
+  const [ocrStatus, setOcrStatus] = useState(''); 
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
-  // Nettoyage du worker si le composant est démonté
   useEffect(() => {
-    return () => {
-      // Cleanup si besoin
-    };
+    return () => {};
   }, []);
 
   // --- GESTION OCR (PHOTO & GALERIE) ---
   const handleOcrProcess = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+    const rawFile = event.target.files[0];
+    if (!rawFile) return;
 
     setIsOcrProcessing(true);
     setOcrProgress(0);
-    setOcrStatus("Initialisation...");
+    setOcrStatus("Nettoyage de l'image..."); // Feedback utilisateur
     setError(null);
 
     let worker = null;
 
     try {
-      // 1. Création du worker avec un logger précis
+      // 1. PRÉ-TRAITEMENT (C'est ici qu'on sauve la mise)
+      const processedFile = await preprocessImage(rawFile);
+      setOcrStatus("Initialisation IA...");
+
+      // 2. Création du worker
       worker = await createWorker('fra', 1, {
         logger: (m) => {
-          // On distingue le chargement du modèle (langue) de la reconnaissance
           if (m.status === 'loading tesseract core' || m.status === 'initializing api') {
-            setOcrStatus("Démarrage du moteur IA...");
-            setOcrProgress(0.1);
+            setOcrStatus("Chargement du moteur...");
+            setOcrProgress(10); // Barre fictive pour le chargement
           } else if (m.status === 'recognizing text') {
-            setOcrStatus("Lecture du texte en cours...");
+            setOcrStatus("Lecture du texte...");
             setOcrProgress(m.progress * 100);
           } else if (m.status.includes('downloading')) {
-             // Gestion du téléchargement du fichier de langue (~20Mo)
-             setOcrStatus("Téléchargement des données de langue...");
-             // Le progress de downloading n'est pas toujours 0-1, on fait une estimation
-             setOcrProgress(50); 
+             setOcrStatus("Téléchargement des données...");
+             setOcrProgress(30); 
           } else {
             setOcrStatus(m.status);
           }
         },
       });
 
-      // 2. Reconnaissance
-      const { data: { text } } = await worker.recognize(file);
+      // 3. Configuration Avancée pour Listes
+      // PSM 6 = Assume a single uniform block of text. (Meilleur pour les listes que le défaut)
+      await worker.setParameters({
+        tessedit_pageseg_mode: PSM.SINGLE_BLOCK, 
+      });
+
+      // 4. Reconnaissance sur l'image NETTOYÉE
+      const { data: { text } } = await worker.recognize(processedFile);
       
-      // 3. Nettoyage du texte brut
+      // 5. Nettoyage du texte brut
+      // On enlève les lignes trop courtes (bruit) et les caractères bizarres uniques
       const cleanText = text
         .split('\n')
         .map(line => line.trim())
-        .filter(line => line.length > 2) // Filtre les bruits
+        .filter(line => {
+          // On garde la ligne si elle fait plus de 3 caractères 
+          // ET si elle contient au moins une lettre (pour éviter les lignes de symboles '---')
+          return line.length > 3 && /[a-zA-Z]/.test(line);
+        })
         .join('\n');
 
       if (!cleanText || cleanText.length === 0) {
-        throw new Error("Aucun texte lisible détecté. Image trop floue ?");
+        throw new Error("Aucun texte lisible. L'image est peut-être trop floue ou trop sombre.");
       }
 
-      // Ajout au texte existant
       setSponsorsList((prev) => (prev ? prev + '\n' + cleanText : cleanText));
-      
-      setSuccess("Liste importée ! Vérifiez les noms et ajoutez les numéros manquants.");
+      setSuccess("Liste importée ! Pensez à vérifier les numéros.");
       
     } catch (err) {
       console.error("Erreur OCR:", err);
-      setError("Impossible de lire l'image. Vérifiez votre connexion (téléchargement initial nécessaire) ou essayez une image plus nette.");
+      setError("Lecture difficile. Essayez de prendre la photo bien à plat, avec une bonne lumière.");
     } finally {
-      // Toujours terminer le worker pour libérer la mémoire
       if (worker) {
         await worker.terminate();
       }
       setIsOcrProcessing(false);
       setOcrStatus('');
-      event.target.value = null; // Reset pour pouvoir réimporter le même fichier
+      event.target.value = null; 
     }
   };
 
@@ -178,7 +238,6 @@ const SessionCreatePage = () => {
         `Session "${data.session.sessionName}" créée avec succès ! Vous allez être redirigé.`
       );
       
-      // Reset
       setSessionName('');
       setSessionCode('');
       setExpectedGodchildCount('');
@@ -203,7 +262,7 @@ const SessionCreatePage = () => {
 
         <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
           
-          {/* CHAMPS PRINCIPAUX (Session & Code) */}
+          {/* CHAMPS PRINCIPAUX */}
           <TextField
             label="Nom de la session (ex: IACC Groupe A)"
             fullWidth
@@ -255,6 +314,7 @@ const SessionCreatePage = () => {
             onChange={(e) => setSponsorsList(e.target.value)}
             disabled={loading || isOcrProcessing}
             placeholder="Scannez une liste ou collez : Nom Complet, Numéro (un par ligne)."
+            helperText="Astuce pour le scan : Prenez la photo bien à plat, avec un bon éclairage."
             sx={{
               '& .MuiOutlinedInput-root': {
                 borderRadius: '24px',
@@ -263,10 +323,10 @@ const SessionCreatePage = () => {
             }}
           />
 
-          {/* BOUTONS D'ACTION RAPIDE (SCAN & IMPORT) */}
+          {/* BOUTONS D'ACTION RAPIDE */}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }}>
             
-            {/* 1. BOUTON CAMÉRA (Force la caméra sur mobile) */}
+            {/* 1. BOUTON CAMÉRA */}
             <Button
               variant="contained"
               component="label"
@@ -285,12 +345,12 @@ const SessionCreatePage = () => {
                 type="file"
                 hidden
                 accept="image/*"
-                capture="environment" // FORCE LA CAMÉRA ARRIÈRE
+                capture="environment"
                 onChange={handleOcrProcess}
               />
             </Button>
 
-            {/* 2. BOUTON GALERIE (Ouvre la galerie) */}
+            {/* 2. BOUTON GALERIE */}
             <Button
               variant="contained"
               component="label"
@@ -300,7 +360,7 @@ const SessionCreatePage = () => {
               sx={{
                 borderRadius: '50px',
                 fontWeight: 'bold',
-                backgroundColor: '#8e44ad', // Violet
+                backgroundColor: '#8e44ad',
                 '&:hover': { backgroundColor: '#732d91' }
               }}
             >
@@ -309,12 +369,11 @@ const SessionCreatePage = () => {
                 type="file"
                 hidden
                 accept="image/*"
-                // PAS DE CAPTURE = GALERIE
                 onChange={handleOcrProcess}
               />
             </Button>
 
-            {/* 3. BOUTON FICHIER TXT */}
+            {/* 3. BOUTON TXT */}
             <Button
               variant="outlined"
               component="label"
@@ -330,13 +389,13 @@ const SessionCreatePage = () => {
 
           {/* BARRE DE PROGRESSION OCR */}
           {isOcrProcessing && (
-             <Box sx={{ width: '100%', mt: 3, p: 2, bgcolor: '#f0f4c3', borderRadius: 2 }}>
-               <Typography variant="body2" align="center" gutterBottom fontWeight="bold">
+             <Box sx={{ width: '100%', mt: 3, p: 2, bgcolor: '#e3f2fd', borderRadius: 2, border: '1px solid #90caf9' }}>
+               <Typography variant="body2" align="center" gutterBottom fontWeight="bold" color="primary">
                  {ocrStatus}
                </Typography>
                <LinearProgress variant="determinate" value={ocrProgress} sx={{ height: 10, borderRadius: 5 }} />
                <Typography variant="caption" align="center" display="block" sx={{ mt: 1 }}>
-                 Le premier scan peut être plus long (chargement du moteur IA).
+                 Traitement de l'image pour améliorer la lisibilité...
                </Typography>
              </Box>
           )}
