@@ -16,12 +16,11 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Group, CameraAlt, Image as ImageIcon, CloudUpload } from '@mui/icons-material';
-import { createWorker, PSM } from 'tesseract.js'; // Import PSM (Page Segmentation Mode)
+import { createWorker, PSM } from 'tesseract.js';
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
 
-// --- Styles Gélule ---
 const pillTextFieldSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: '50px',
@@ -50,9 +49,7 @@ const pillButtonSx = (color = 'primary') => ({
   },
 });
 
-// --- FONCTION DE PRÉ-TRAITEMENT D'IMAGE (Magie noire) ---
-// Cette fonction prend l'image brute, la passe en noir et blanc et augmente le contraste
-// pour que Tesseract arrête de lire les ombres.
+// --- FONCTION DE PRÉ-TRAITEMENT D'IMAGE ---
 const preprocessImage = (imageFile) => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -62,7 +59,6 @@ const preprocessImage = (imageFile) => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
-      // On redimensionne si l'image est trop géante (optimisation perf mobile)
       const MAX_WIDTH = 1500;
       const scale = MAX_WIDTH / img.width;
       canvas.width = scale < 1 ? MAX_WIDTH : img.width;
@@ -70,31 +66,18 @@ const preprocessImage = (imageFile) => {
 
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       
-      // Accès aux pixels
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imgData.data;
 
-      // Algorithme de Binarisation (Seuil) + Grayscale
-      // On transforme tout ce qui n'est pas très sombre en blanc pur
-      // Et ce qui est sombre en noir pur.
       for (let i = 0; i < data.length; i += 4) {
-        // Niveau de gris = 0.3*R + 0.59*G + 0.11*B
         const gray = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
-        
-        // Seuil de contraste (Threshold) : 120 est une bonne moyenne
-        // Si le pixel est plus clair que 120, il devient BLANC (255)
-        // Sinon il devient NOIR (0)
         const value = gray > 130 ? 255 : 0;
-
-        data[i] = value;     // R
-        data[i + 1] = value; // G
-        data[i + 2] = value; // B
-        // Alpha (data[i+3]) reste inchangé
+        data[i] = value;
+        data[i + 1] = value;
+        data[i + 2] = value;
       }
 
       ctx.putImageData(imgData, 0, 0);
-      
-      // Retourne l'image traitée en Blob
       canvas.toBlob((blob) => {
         resolve(blob);
       }, 'image/jpeg', 0.9);
@@ -107,49 +90,39 @@ const preprocessImage = (imageFile) => {
 const SessionCreatePage = () => {
   const navigate = useNavigate();
 
-  // États du formulaire
   const [sessionName, setSessionName] = useState('');
   const [sessionCode, setSessionCode] = useState('');
   const [expectedGodchildCount, setExpectedGodchildCount] = useState('');
   const [sponsorsList, setSponsorsList] = useState('');
 
-  // États de retour
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   
-  // État OCR
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrStatus, setOcrStatus] = useState(''); 
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
-  useEffect(() => {
-    return () => {};
-  }, []);
-
-  // --- GESTION OCR (PHOTO & GALERIE) ---
   const handleOcrProcess = async (event) => {
     const rawFile = event.target.files[0];
     if (!rawFile) return;
 
     setIsOcrProcessing(true);
     setOcrProgress(0);
-    setOcrStatus("Nettoyage de l'image..."); // Feedback utilisateur
+    setOcrStatus("Nettoyage de l'image...");
     setError(null);
 
     let worker = null;
 
     try {
-      // 1. PRÉ-TRAITEMENT (C'est ici qu'on sauve la mise)
       const processedFile = await preprocessImage(rawFile);
       setOcrStatus("Initialisation IA...");
 
-      // 2. Création du worker
       worker = await createWorker('fra', 1, {
         logger: (m) => {
           if (m.status === 'loading tesseract core' || m.status === 'initializing api') {
             setOcrStatus("Chargement du moteur...");
-            setOcrProgress(10); // Barre fictive pour le chargement
+            setOcrProgress(10);
           } else if (m.status === 'recognizing text') {
             setOcrStatus("Lecture du texte...");
             setOcrProgress(m.progress * 100);
@@ -162,23 +135,16 @@ const SessionCreatePage = () => {
         },
       });
 
-      // 3. Configuration Avancée pour Listes
-      // PSM 6 = Assume a single uniform block of text. (Meilleur pour les listes que le défaut)
       await worker.setParameters({
         tessedit_pageseg_mode: PSM.SINGLE_BLOCK, 
       });
 
-      // 4. Reconnaissance sur l'image NETTOYÉE
       const { data: { text } } = await worker.recognize(processedFile);
       
-      // 5. Nettoyage du texte brut
-      // On enlève les lignes trop courtes (bruit) et les caractères bizarres uniques
       const cleanText = text
         .split('\n')
         .map(line => line.trim())
         .filter(line => {
-          // On garde la ligne si elle fait plus de 3 caractères 
-          // ET si elle contient au moins une lettre (pour éviter les lignes de symboles '---')
           return line.length > 3 && /[a-zA-Z]/.test(line);
         })
         .join('\n');
@@ -203,7 +169,6 @@ const SessionCreatePage = () => {
     }
   };
 
-  // --- GESTION FICHIER TXT ---
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (file && file.type === 'text/plain') {
@@ -218,7 +183,6 @@ const SessionCreatePage = () => {
     event.target.value = null;
   };
 
-  // --- SOUMISSION ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -235,7 +199,7 @@ const SessionCreatePage = () => {
 
       setLoading(false);
       setSuccess(
-        `Session "${data.session.sessionName}" créée avec succès ! Vous allez être redirigé.`
+        `Session "${data.session.sessionName}" créée ! Redirection vers le tableau de bord...`
       );
       
       setSessionName('');
@@ -243,9 +207,10 @@ const SessionCreatePage = () => {
       setExpectedGodchildCount('');
       setSponsorsList('');
       
+      // REDIRECTION VERS LE DASHBOARD DU DÉLÉGUÉ
       setTimeout(() => {
-        navigate('/');
-      }, 3000);
+        navigate(`/delegue/dashboard/${data.session._id}`);
+      }, 2000);
 
     } catch (err) {
       setLoading(false);
@@ -262,7 +227,6 @@ const SessionCreatePage = () => {
 
         <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
           
-          {/* CHAMPS PRINCIPAUX */}
           <TextField
             label="Nom de la session (ex: IACC Groupe A)"
             fullWidth
@@ -286,7 +250,7 @@ const SessionCreatePage = () => {
                 endAdornment: <InputAdornment position="end" sx={{ mr: 1 }}><Lock /></InputAdornment>,
               }}
             />
-            <Tooltip title="Optionnel : Nombre de filleuls attendus pour le calcul des binômes." arrow>
+            <Tooltip title="Optionnel : Nombre de filleuls attendus." arrow>
               <TextField
                 label="Nb. estimé de filleuls"
                 type="number"
@@ -302,19 +266,18 @@ const SessionCreatePage = () => {
             </Tooltip>
           </Box>
 
-          {/* ZONE DE TEXTE */}
           <TextField
             label="Liste des Parrains/Marraines"
             variant="outlined"
             fullWidth
-            required
+            required={false} // On peut laisser vide si on compte sur le lien
             multiline
             rows={8}
             value={sponsorsList}
             onChange={(e) => setSponsorsList(e.target.value)}
             disabled={loading || isOcrProcessing}
-            placeholder="Scannez une liste ou collez : Nom Complet, Numéro (un par ligne)."
-            helperText="Astuce pour le scan : Prenez la photo bien à plat, avec un bon éclairage."
+            placeholder="Collez la liste ici OU laissez vide et utilisez le lien d'invitation plus tard."
+            helperText="Format manuel : Nom Complet, Numéro"
             sx={{
               '& .MuiOutlinedInput-root': {
                 borderRadius: '24px',
@@ -323,10 +286,7 @@ const SessionCreatePage = () => {
             }}
           />
 
-          {/* BOUTONS D'ACTION RAPIDE */}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }}>
-            
-            {/* 1. BOUTON CAMÉRA */}
             <Button
               variant="contained"
               component="label"
@@ -340,17 +300,10 @@ const SessionCreatePage = () => {
                 color: 'white'
               }}
             >
-              Scanner (Caméra)
-              <input
-                type="file"
-                hidden
-                accept="image/*"
-                capture="environment"
-                onChange={handleOcrProcess}
-              />
+              Scanner
+              <input type="file" hidden accept="image/*" capture="environment" onChange={handleOcrProcess} />
             </Button>
 
-            {/* 2. BOUTON GALERIE */}
             <Button
               variant="contained"
               component="label"
@@ -364,16 +317,10 @@ const SessionCreatePage = () => {
                 '&:hover': { backgroundColor: '#732d91' }
               }}
             >
-              Depuis Galerie
-              <input
-                type="file"
-                hidden
-                accept="image/*"
-                onChange={handleOcrProcess}
-              />
+              Galerie
+              <input type="file" hidden accept="image/*" onChange={handleOcrProcess} />
             </Button>
 
-            {/* 3. BOUTON TXT */}
             <Button
               variant="outlined"
               component="label"
@@ -387,20 +334,15 @@ const SessionCreatePage = () => {
             </Button>
           </Stack>
 
-          {/* BARRE DE PROGRESSION OCR */}
           {isOcrProcessing && (
              <Box sx={{ width: '100%', mt: 3, p: 2, bgcolor: '#e3f2fd', borderRadius: 2, border: '1px solid #90caf9' }}>
                <Typography variant="body2" align="center" gutterBottom fontWeight="bold" color="primary">
                  {ocrStatus}
                </Typography>
                <LinearProgress variant="determinate" value={ocrProgress} sx={{ height: 10, borderRadius: 5 }} />
-               <Typography variant="caption" align="center" display="block" sx={{ mt: 1 }}>
-                 Traitement de l'image pour améliorer la lisibilité...
-               </Typography>
              </Box>
           )}
 
-          {/* MESSAGES */}
           {error && <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>{error}</Alert>}
           {success && (
             <Fade in={true}>
@@ -408,7 +350,6 @@ const SessionCreatePage = () => {
             </Fade>
           )}
 
-          {/* SOUMISSION FINALE */}
           <Button
             type="submit"
             variant="contained"
