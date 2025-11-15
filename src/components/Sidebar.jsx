@@ -7,7 +7,6 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  // Modal, // 1. SUPPRIMÉ
   Typography,
   Button,
   Stack,
@@ -24,9 +23,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
-import AnimatedModal from './AnimatedModal'; // 2. IMPORTÉ
+import AnimatedModal from './AnimatedModal';
 
 // --- Secrets 1 & 2 (Animation Sidebar) ---
+// On garde l'animation, mais on adapte la cible
 const circleCenter = 'calc(100% - 32px) 32px';
 
 const waveVariants = {
@@ -35,7 +35,8 @@ const waveVariants = {
     transition: { type: 'spring', stiffness: 400, damping: 40 },
   },
   visible: {
-    clipPath: `circle(150vh at ${circleCenter})`,
+    // On augmente la taille du cercle pour être sûr de couvrir la sidebar
+    clipPath: `circle(1200px at ${circleCenter})`, 
     transition: { type: 'spring', stiffness: 20, restDelta: 2 },
   },
 };
@@ -60,8 +61,6 @@ const listItemVariant = {
     y: 20,
   },
 };
-
-// const modalStyle = { ... }; // 3. SUPPRIMÉ (géré par AnimatedModal)
 
 const Sidebar = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
@@ -103,7 +102,7 @@ const Sidebar = ({ isOpen, onClose }) => {
 
   return (
     <>
-      {/* --- SIDEBAR (inchangée) --- */}
+      {/* --- SIDEBAR --- */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -112,17 +111,26 @@ const Sidebar = ({ isOpen, onClose }) => {
             animate="visible"
             exit="hidden"
             style={{
-              position: 'fixed', top: 0, right: 0,
-              width: '100vw', height: '100vh',
-              backgroundColor: '#1a1a1a', zIndex: 1300,
-              display: 'flex', justifyContent: 'flex-end',
+              position: 'fixed', 
+              top: 0, 
+              right: 0,
+              // CORRECTION 1: Largeur limitée (300px sur mobile/desktop)
+              // au lieu de 100vw qui prenait tout l'écran
+              width: '100%', 
+              maxWidth: '300px', 
+              height: '100vh',
+              backgroundColor: '#1a1a1a', 
+              zIndex: 1300,
+              display: 'flex', 
+              justifyContent: 'flex-end',
+              boxShadow: '-4px 0 15px rgba(0,0,0,0.5)' // Ajout d'une ombre pour détacher du fond
             }}
           >
             <IconButton onClick={onClose} sx={{ position: 'absolute', top: '16px', right: '18px', color: 'white', zIndex: 1301 }}>
               <Close />
             </IconButton>
             
-            <Box sx={{ width: 280, p: 2, boxSizing: 'border-box', pt: '80px' }}>
+            <Box sx={{ width: '100%', p: 2, boxSizing: 'border-box', pt: '80px' }}>
               <motion.ul
                 style={{ listStyle: 'none', padding: 0, margin: 0, color: 'white' }}
                 variants={listContainerVariant}
@@ -154,7 +162,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         )}
       </AnimatePresence>
 
-      {/* 4. MODALS REFACTORISÉS (CODE COMPLET) */}
+      {/* Modals (inchangés) */}
       <AnimatedModal open={delegueModalOpen} onClose={handleCloseDelegueModal}>
         <Typography variant="h6" component="h2" gutterBottom>
           Êtes-vous délégué ?

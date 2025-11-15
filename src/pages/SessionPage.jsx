@@ -15,7 +15,7 @@ import {
   FormLabel,
   InputAdornment,
 } from '@mui/material';
-import { Lock } from '@mui/icons-material';
+import { Lock, Home } from '@mui/icons-material'; // Ajout icône Home
 import { useParams, useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -53,28 +53,21 @@ const pillButtonSx = (color = 'primary') => ({
   },
 });
 
-// --- Hook Utilitaire pour la taille de l'écran ---
+// --- Hook Utilitaire (inchangé) ---
 const useWindowSize = () => {
   const [windowSize, setWindowSize] = useState({
     width: window.innerWidth,
     height: window.innerHeight,
   });
-
   useEffect(() => {
-    const handleResize = () => {
-      setWindowSize({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
-    };
+    const handleResize = () => setWindowSize({ width: window.innerWidth, height: window.innerHeight });
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-
   return windowSize;
 };
 
-// --- COMPOSANT ANIMÉ NUMÉRO (CORRIGÉ) ---
+// --- COMPOSANT ANIMÉ NUMÉRO (CORRIGÉ POUR MOBILE) ---
 const AnimatedPhoneNumber = ({ phoneNumber }) => {
   const [displayedNumber, setDisplayedNumber] = useState('');
   const timeoutRef = useRef(null);
@@ -84,16 +77,14 @@ const AnimatedPhoneNumber = ({ phoneNumber }) => {
       setDisplayedNumber('');
       return;
     }
-
     setDisplayedNumber('');
-    const strPhone = String(phoneNumber); // Force string
+    const strPhone = String(phoneNumber);
     const digits = strPhone.split('');
     let currentIndex = 0;
 
     if (timeoutRef.current) clearInterval(timeoutRef.current);
 
     timeoutRef.current = setInterval(() => {
-      // CORRECTION ICI : Vérification stricte
       if (currentIndex < digits.length) {
         const digit = digits[currentIndex];
         if (digit !== undefined) {
@@ -111,24 +102,25 @@ const AnimatedPhoneNumber = ({ phoneNumber }) => {
   }, [phoneNumber]);
 
   return (
-    <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
       <Typography variant="h6" color="text.secondary" gutterBottom>
         Contact :
       </Typography>
       <Typography
-        variant="h4"
-        component="div"
+        // CORRECTION 3: Responsive Font Size et Spacing
         sx={{
+          fontSize: { xs: '1.8rem', sm: '2.5rem' }, // Plus petit sur mobile
           fontWeight: 'bold',
           color: '#d32f2f',
-          letterSpacing: '4px',
+          letterSpacing: { xs: '2px', sm: '4px' }, // Moins espacé sur mobile
           fontFamily: 'monospace',
           textShadow: '2px 2px 4px rgba(0,0,0,0.1)',
           minHeight: '40px',
-          maxWidth: '100%',
-          overflow: 'hidden',
+          // On retire overflow: hidden qui coupait le texte
           whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
+          // En dernier recours, on réduit si ça dépasse vraiment
+          width: '100%',
+          textAlign: 'center',
         }}
       >
         {displayedNumber}
@@ -157,6 +149,9 @@ const SessionPage = () => {
   const [recycleConfetti, setRecycleConfetti] = useState(true);
   const [countdown, setCountdown] = useState(null);
 
+  // NOUVEAU : État pour gérer l'erreur critique (session supprimée)
+  const [isCriticalError, setIsCriticalError] = useState(false);
+
   // 1. Charger les détails de la session
   useEffect(() => {
     const fetchSessionDetails = async () => {
@@ -165,15 +160,14 @@ const SessionPage = () => {
         setSessionName(data.sessionName);
       } catch (err) {
         console.error('Erreur chargement session', err);
-        const message = err.response?.data?.message || "Cette session n'existe pas.";
+        // Si 404 ou autre erreur, on active le mode "Erreur Critique"
+        const message = err.response?.data?.message || "Cette session n'est plus disponible.";
         setError(message);
-        if (!message.includes('terminée')) {
-           setTimeout(() => navigate('/'), 3000);
-        }
+        setIsCriticalError(true); // Déclenche l'affichage de secours
       }
     };
     fetchSessionDetails();
-  }, [sessionID, navigate]);
+  }, [sessionID]);
 
   // 2. Gestion Timer Confettis
   useEffect(() => {
@@ -200,8 +194,6 @@ const SessionPage = () => {
         }
       }, 700);
       return () => clearInterval(countdownInterval);
-    } else {
-      setCountdown(null);
     }
   }, [pairingResult]);
 
@@ -210,6 +202,7 @@ const SessionPage = () => {
     e.preventDefault();
     if (!godchildGender || !sessionCode) {
       setError('Veuillez sélectionner votre genre et entrer le Code LOKO.');
+      setShowErrorModal(true); // Afficher le modal pour les erreurs simples
       return;
     }
     setLoading(true);
@@ -234,7 +227,14 @@ const SessionPage = () => {
       setLoading(false);
       const errorMessage = err.response?.data?.message || 'Une erreur est survenue.';
       setError(errorMessage);
-      setShowErrorModal(true);
+      
+      // Si l'erreur est que la session est terminée/supprimée, c'est critique
+      if (errorMessage.includes('terminée') || errorMessage.includes('introuvable')) {
+        setIsCriticalError(true);
+      } else {
+        // Erreur simple (mauvais code, etc.) -> Modal
+        setShowErrorModal(true);
+      }
     }
   };
 
@@ -243,8 +243,34 @@ const SessionPage = () => {
     setError(null);
   };
 
-  // --- Rendu ---
+  // --- RENDU VUE CRITIQUE (CORRECTION 2) ---
+  if (isCriticalError) {
+    return (
+      <PageTransition>
+        <FormContainer maxWidth="sm">
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography variant="h1" sx={{ fontSize: '4rem', mb: 2 }}>⚠️</Typography>
+            <Typography variant="h5" component="h1" gutterBottom sx={{ fontWeight: 'bold', color: 'error.main' }}>
+              Oups !
+            </Typography>
+            <Typography variant="body1" sx={{ mb: 4 }}>
+              {error || "Cette session a été supprimée ou n'existe plus."}
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<Home />}
+              onClick={() => navigate('/')}
+              sx={{ ...pillButtonSx(), px: 4 }}
+            >
+              Retour à l'accueil
+            </Button>
+          </Box>
+        </FormContainer>
+      </PageTransition>
+    );
+  }
 
+  // --- RENDU SUCCÈS ---
   if (pairingResult) {
     const genreText = godchildGender === 'Homme' ? 'le Filleul' : 'la Filleule';
     return (
@@ -316,24 +342,8 @@ const SessionPage = () => {
       </PageTransition>
     );
   }
-  
-  if (error && !showErrorModal && !pairingResult) {
-     return (
-        <PageTransition>
-          <FormContainer maxWidth="sm">
-             <Alert severity="error" sx={{ borderRadius: '16px' }}>{error}</Alert>
-             <Button
-                variant="contained"
-                onClick={() => navigate('/')}
-                sx={{ mt: 3, ...pillButtonSx() }}
-              >
-                Retour à l'accueil
-              </Button>
-          </FormContainer>
-        </PageTransition>
-     );
-  }
 
+  // --- RENDU FORMULAIRE ---
   return (
     <PageTransition>
       <>
@@ -386,10 +396,6 @@ const SessionPage = () => {
                 <FormControlLabel value="Femme" control={<Radio />} label="une Femme" />
               </RadioGroup>
             </FormControl>
-
-            {error && !showErrorModal && (
-              <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>{error}</Alert>
-            )}
 
             <Button
               type="submit"
