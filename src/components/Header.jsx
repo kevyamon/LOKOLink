@@ -9,13 +9,13 @@ import {
   IconButton,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
-import { useNavigate } from 'react-router-dom'; // 1. Importer useNavigate
+import { useNavigate } from 'react-router-dom';
 
 // Importation du logo
 import logo from '../assets/logo.png';
 
 const Header = ({ onToggleSidebar, isSidebarOpen }) => {
-  const navigate = useNavigate(); // 2. Initialiser useNavigate
+  const navigate = useNavigate();
 
   return (
     <AppBar
@@ -29,19 +29,22 @@ const Header = ({ onToggleSidebar, isSidebarOpen }) => {
       }}
     >
       <Toolbar>
-        {/* 3. Logo (Rendu Cliquable) */}
+        {/* Logo (Rendu Cliquable et Circulaire) */}
         <Box
           component="img"
           src={logo}
           alt="LOKOlink Logo"
-          onClick={() => navigate('/')} // 4. Ajout de l'événement onClick
+          onClick={() => navigate('/')}
           sx={{
             height: '40px',
+            width: '40px', // On force un carré pour que le cercle soit parfait
             mr: 2,
-            cursor: 'pointer', // 5. Ajout du curseur "main"
+            cursor: 'pointer',
+            borderRadius: '50%', // LA DÉCOUPE CIRCULAIRE
+            objectFit: 'cover', // L'image remplit bien le cercle sans être écrasée
             transition: 'transform 0.2s ease',
             '&:hover': {
-              transform: 'scale(1.05)', // Petite animation bonus
+              transform: 'scale(1.05)',
             },
           }}
         />
@@ -50,10 +53,10 @@ const Header = ({ onToggleSidebar, isSidebarOpen }) => {
         <Typography
           variant="h6"
           component="div"
-          onClick={() => navigate('/')} // 4. Ajout de l'événement onClick
+          onClick={() => navigate('/')}
           sx={{
             fontWeight: 'bold',
-            cursor: 'pointer', // 5. Ajout du curseur "main"
+            cursor: 'pointer',
           }}
         >
           LOKOlink

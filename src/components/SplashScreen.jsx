@@ -8,7 +8,6 @@ import logo from '../assets/logo.png';
 
 const SplashScreen = () => {
   return (
-    // 'Fade in' pour une apparition douce
     <Fade in={true} timeout={1000}>
       <Box
         sx={{
@@ -17,32 +16,34 @@ const SplashScreen = () => {
           alignItems: 'center',
           justifyContent: 'center',
           minHeight: '100vh',
-          // Le composant est transparent, le fond du <body> s'appliquera
           color: 'text.primary',
         }}
       >
-        {/* Logo */}
+        {/* Logo Circulaire */}
         <Box
           component="img"
           src={logo}
           alt="LOKOlink Logo"
           sx={{
             height: '100px',
+            width: '100px', // Carré parfait
+            borderRadius: '50%', // Découpe circulaire
+            objectFit: 'cover',
             mb: 3,
             animation: 'pulse 2s infinite ease-in-out',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.2)', // Petite ombre portée pour le style
           }}
         />
 
         {/* Titre */}
         <Typography variant="h3" component="h1" gutterBottom sx={{ fontWeight: 'bold' }}>
           LOKOlink
-        </Typography> 
-        {/* CORRECTION: Il manquait le '>' ici */}
+        </Typography>
 
         {/* Spinner */}
         <CircularProgress sx={{ my: 3 }} />
 
-        {/* Mention (Cahier des charges) */}
+        {/* Mention */}
         <Typography variant="h6">
           Une initiative de Kevin Amon
         </Typography>
