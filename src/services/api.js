@@ -2,14 +2,13 @@
 
 import axios from 'axios';
 
-// 1. Créer une instance 'axios'
+// 1. Définir l'URL de base dynamiquement
+// En PROD : VITE_API_URL sera défini dans les réglages de Render.
+// En DEV : On n'en met pas, le proxy de vite.config.js prendra le relais sur les requêtes relatives.
+const baseURL = import.meta.env.VITE_API_URL || '';
+
 const api = axios.create({
-  // 2. SUPPRIMER la baseURL
-  // baseURL: import.meta.env.VITE_API_URL, // SUPPRIMÉ
-  
-  // Les requêtes seront relatives (ex: /api/auth/login)
-  // et seront interceptées par le proxy Vite.
-  
+  baseURL: baseURL, 
   headers: {
     'Content-Type': 'application/json',
   },

@@ -1,6 +1,6 @@
 // src/pages/SessionPage.jsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Typography,
   Box,
@@ -18,7 +18,7 @@ import {
 import { Lock } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
-import { motion } from 'framer-motion'; // IMPORTER FRAMER MOTION
+import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
@@ -30,13 +30,11 @@ const pillTextFieldSx = {
     borderRadius: '50px',
     backgroundColor: '#f9f9f9',
     boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)',
-    '& .MuiOutlinedInput-notchedOutline': {
-      border: 'none',
-    },
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
       border: '2px solid',
       borderColor: 'primary.main',
     },
+    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
   },
 };
 
@@ -55,7 +53,7 @@ const pillButtonSx = (color = 'primary') => ({
   },
 });
 
-// --- Hook Utilitaire pour la taille de l'écran (inchangé) ---
+// --- Hook Utilitaire pour la taille de l'écran ---
 const useWindowSize = () => {
   const [windowSize, setWindowSize] = useState({
     width: window.innerWidth,
@@ -76,38 +74,66 @@ const useWindowSize = () => {
   return windowSize;
 };
 
-// --- NOUVEAU COMPOSANT : AnimatedPhoneNumber ---
+// --- COMPOSANT ANIMÉ NUMÉRO (CORRIGÉ) ---
 const AnimatedPhoneNumber = ({ phoneNumber }) => {
   const [displayedNumber, setDisplayedNumber] = useState('');
-  const [animationStarted, setAnimationStarted] = useState(false);
+  const timeoutRef = useRef(null);
 
   useEffect(() => {
-    if (phoneNumber && !animationStarted) {
-      setAnimationStarted(true);
-      setDisplayedNumber(''); // Réinitialise pour une nouvelle animation
-      const digits = phoneNumber.split('');
-      let index = 0;
-
-      // Durée totale de l'animation : 5 secondes (5000 ms)
-      // Nombre de chiffres : 10
-      // Délai entre chaque chiffre : 5000ms / 10 chiffres = 500ms par chiffre
-      const interval = setInterval(() => {
-        if (index < digits.length) {
-          setDisplayedNumber((prev) => prev + digits[index]);
-          index++;
-        } else {
-          clearInterval(interval);
-        }
-      }, 500); // 500ms de délai entre chaque chiffre
-
-      return () => clearInterval(interval);
+    if (!phoneNumber) {
+      setDisplayedNumber('');
+      return;
     }
-  }, [phoneNumber, animationStarted]);
+
+    setDisplayedNumber('');
+    const strPhone = String(phoneNumber); // Force string
+    const digits = strPhone.split('');
+    let currentIndex = 0;
+
+    if (timeoutRef.current) clearInterval(timeoutRef.current);
+
+    timeoutRef.current = setInterval(() => {
+      // CORRECTION ICI : Vérification stricte
+      if (currentIndex < digits.length) {
+        const digit = digits[currentIndex];
+        if (digit !== undefined) {
+           setDisplayedNumber((prev) => prev + digit);
+        }
+        currentIndex++;
+      } else {
+        clearInterval(timeoutRef.current);
+      }
+    }, 500);
+
+    return () => {
+      if (timeoutRef.current) clearInterval(timeoutRef.current);
+    };
+  }, [phoneNumber]);
 
   return (
-    <Typography variant="h5" sx={{ mt: 2, fontWeight: 'bold' }}>
-      Contact : {displayedNumber}
-    </Typography>
+    <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <Typography variant="h6" color="text.secondary" gutterBottom>
+        Contact :
+      </Typography>
+      <Typography
+        variant="h4"
+        component="div"
+        sx={{
+          fontWeight: 'bold',
+          color: '#d32f2f',
+          letterSpacing: '4px',
+          fontFamily: 'monospace',
+          textShadow: '2px 2px 4px rgba(0,0,0,0.1)',
+          minHeight: '40px',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {displayedNumber}
+      </Typography>
+    </Box>
   );
 };
 
@@ -129,8 +155,9 @@ const SessionPage = () => {
   const [showErrorModal, setShowErrorModal] = useState(false);
 
   const [recycleConfetti, setRecycleConfetti] = useState(true);
+  const [countdown, setCountdown] = useState(null);
 
-  // 1. Charger les détails de la session (inchangé)
+  // 1. Charger les détails de la session
   useEffect(() => {
     const fetchSessionDetails = async () => {
       try {
@@ -148,7 +175,7 @@ const SessionPage = () => {
     fetchSessionDetails();
   }, [sessionID, navigate]);
 
-  // 2. Gestion du Timer Confettis (inchangé)
+  // 2. Gestion Timer Confettis
   useEffect(() => {
     if (pairingResult) {
       const timer = setTimeout(() => {
@@ -158,7 +185,27 @@ const SessionPage = () => {
     }
   }, [pairingResult]);
 
-  // 3. Gestion de la soumission (inchangé)
+  // 3. Gestion Compte à Rebours
+  useEffect(() => {
+    if (pairingResult) {
+      setCountdown(3);
+      let count = 3;
+      const countdownInterval = setInterval(() => {
+        count--;
+        if (count >= 1) {
+          setCountdown(count);
+        } else {
+          setCountdown(0);
+          clearInterval(countdownInterval);
+        }
+      }, 700);
+      return () => clearInterval(countdownInterval);
+    } else {
+      setCountdown(null);
+    }
+  }, [pairingResult]);
+
+  // 4. Soumission
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!godchildGender || !sessionCode) {
@@ -198,7 +245,6 @@ const SessionPage = () => {
 
   // --- Rendu ---
 
-  // Cas 1: Résultat (Félicitations + Confettis + Animations)
   if (pairingResult) {
     const genreText = godchildGender === 'Homme' ? 'le Filleul' : 'la Filleule';
     return (
@@ -223,19 +269,39 @@ const SessionPage = () => {
               Vous êtes {genreText} de :
             </Typography>
             
-            {/* ANIMATION BATTEMENT DE CŒUR (NOM DU PARRAIN) */}
-            <motion.div
-              initial={{ scale: 1 }}
-              animate={{ scale: [1, 1.05, 1] }} // Battement léger (agrandir, puis revenir)
-              transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut" }} // Animation infinie et douce
-              style={{ display: 'inline-block' }} // Pour que l'animation n'affecte pas tout le bloc
-            >
-              <Typography variant="h3" color="primary" sx={{ mt: 2, mb: 2, fontWeight: '900', textTransform: 'uppercase' }}>
-                {pairingResult.sponsorName}
-              </Typography>
-            </motion.div>
+            <AnimatePresence mode="wait">
+              {countdown > 0 && (
+                <motion.div
+                  key="countdown"
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.5 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <Typography variant="h2" color="primary" sx={{ mt: 2, mb: 2, fontWeight: '900' }}>
+                    {countdown}
+                  </Typography>
+                </motion.div>
+              )}
+              {countdown === 0 && (
+                <motion.div
+                  key="sponsorName"
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 260,
+                    damping: 20
+                  }}
+                  style={{ display: 'inline-block' }}
+                >
+                  <Typography variant="h3" color="primary" sx={{ mt: 2, mb: 2, fontWeight: '900', textTransform: 'uppercase' }}>
+                    {pairingResult.sponsorName}
+                  </Typography>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            {/* ANIMATION NUMÉRO DE TÉLÉPHONE CHIFFRE PAR CHIFFRE */}
             <AnimatedPhoneNumber phoneNumber={pairingResult.sponsorPhone} />
 
             <Button
@@ -251,7 +317,6 @@ const SessionPage = () => {
     );
   }
   
-  // Cas Erreur critique (inchangé)
   if (error && !showErrorModal && !pairingResult) {
      return (
         <PageTransition>
@@ -269,7 +334,6 @@ const SessionPage = () => {
      );
   }
 
-  // Cas 2: Formulaire de recherche (inchangé)
   return (
     <PageTransition>
       <>
@@ -324,9 +388,7 @@ const SessionPage = () => {
             </FormControl>
 
             {error && !showErrorModal && (
-              <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>
-                {error}
-              </Alert>
+              <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>{error}</Alert>
             )}
 
             <Button
@@ -342,22 +404,12 @@ const SessionPage = () => {
           </Box>
         </FormContainer>
 
-        <AnimatedModal
-          open={showErrorModal}
-          onClose={handleCloseErrorModal}
-        >
+        <AnimatedModal open={showErrorModal} onClose={handleCloseErrorModal}>
           <Typography variant="h6" component="h2" gutterBottom>
             {error === "Code LOKO incorrect." ? "Code Incorrect" : "Information"}
           </Typography>
-          <Typography sx={{ mt: 2 }}>
-            {error}
-          </Typography>
-          <Button
-            variant="contained"
-            fullWidth
-            onClick={handleCloseErrorModal}
-            sx={{ mt: 3, ...pillButtonSx() }}
-          >
+          <Typography sx={{ mt: 2 }}>{error}</Typography>
+          <Button variant="contained" fullWidth onClick={handleCloseErrorModal} sx={{ mt: 3, ...pillButtonSx() }}>
             Fermer
           </Button>
         </AnimatedModal>
