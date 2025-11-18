@@ -7,12 +7,12 @@ import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
 import api from './services/api'; 
 
-// Composants
+// --- COMPOSANTS DE BASE ---
 import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
+import LoadingTimeout from './components/LoadingTimeout'; // <--- IMPORT AJOUTÉ
 
-// --- PAGES (Lazy Loading STANDARD) ---
-// On retire la promesse manuelle qui faisait planter
+// --- PAGES (Lazy Loading) ---
 const HomePage = React.lazy(() => import('./pages/HomePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage'));
@@ -24,6 +24,12 @@ const SessionCreatePage = React.lazy(() => import('./pages/SessionCreatePage'));
 const DelegateDashboardPage = React.lazy(() => import('./pages/DelegateDashboardPage'));
 const DelegateSessionsPage = React.lazy(() => import('./pages/DelegateSessionsPage'));
 const SuperAdminDashboardPage = React.lazy(() => import('./pages/SuperAdminDashboardPage'));
+
+const LazySpinner = () => (
+  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '70vh' }}>
+    <CircularProgress sx={{ color: '#d32f2f' }} />
+  </Box>
+);
 
 const ProtectedRoute = () => {
   const { isAuthenticated, isDelegue, isAdmin } = useAuth();
@@ -42,69 +48,82 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [backendReady, setBackendReady] = useState(false);
   const [animationFinished, setAnimationFinished] = useState(false);
+  const [isTimeoutError, setIsTimeoutError] = useState(false); // <--- NOUVEL ÉTAT
+  
   const location = useLocation();
   const videoRef = useRef(null); 
 
   // 1. GESTION VIDÉO
   useEffect(() => {
-    // On laisse le composant SplashScreen gérer la lecture
-    // Ce useEffect sert juste de sécurité globale
+    // La gestion est faite dans SplashScreen, ce hook sert de sécurité si besoin
   }, []);
 
-  // 2. LOGIQUE DE CHARGEMENT
+  // 2. LOGIQUE DE CHARGEMENT & PING "PATIENT"
   useEffect(() => {
     let isMounted = true;
+    let progressTimer;
     let pingInterval;
+    const MAX_WAIT_TIME = 60000; // 60 secondes max avant erreur
+    const startTime = Date.now();
 
-    // A. Barre de progression
-    const progressTimer = setInterval(() => {
+    // A. Barre de progression "Psychologique"
+    progressTimer = setInterval(() => {
       setProgress((old) => {
+        // On bloque à 90% tant que le backend n'est pas prêt
         if (old >= 90) return 90; 
-        const diff = Math.random() * 10;
+        // Plus on avance, plus on ralentit pour ne pas atteindre 90 trop vite
+        const diff = Math.random() * (old > 70 ? 2 : 10);
         return Math.min(old + diff, 90);
       });
     }, 200);
 
-    // B. Ping Serveur
+    // B. Ping Serveur (La boucle de réveil)
     const checkServer = async () => {
         try {
-            await api.get('/');
-            if (isMounted) setBackendReady(true);
+            console.log("Ping serveur...");
+            await api.get('/'); // Tente de joindre le backend
+            
+            if (isMounted) {
+                console.log("Serveur réveillé !");
+                setBackendReady(true); // VICTOIRE !
+                clearInterval(pingInterval);
+            }
         } catch (e) {
-            console.log("Serveur dort encore...");
+            console.log("Serveur dort encore (ou erreur réseau)... on attend.");
         }
     };
     
+    // Premier essai immédiat
     checkServer();
+    
+    // Puis on réessaie toutes les 2 secondes
     pingInterval = setInterval(() => {
-        if (!backendReady) checkServer();
-        else clearInterval(pingInterval);
-    }, 2000);
-
-    // C. Timeout de sécurité (8s)
-    const safetyTimeout = setTimeout(() => {
-        if (isMounted) {
-            console.log("⚠️ Timeout : Ouverture forcée.");
-            setBackendReady(true);
-            setAnimationFinished(true);
+        // Si on a dépassé le temps max (60s), on déclare le décès du serveur
+        if (Date.now() - startTime > MAX_WAIT_TIME) {
+            clearInterval(pingInterval);
+            clearInterval(progressTimer);
+            if (isMounted) setIsTimeoutError(true); // Affiche l'écran d'erreur
+        } else if (!backendReady) {
+            checkServer();
         }
-    }, 8000);
+    }, 2000);
 
     return () => {
       isMounted = false;
       clearInterval(progressTimer);
       clearInterval(pingInterval);
-      clearTimeout(safetyTimeout);
     };
   }, [backendReady]);
 
-  // 3. FERMETURE DU SPLASH
+  // 3. FERMETURE DU SPLASH (Uniquement quand TOUT est prêt)
   useEffect(() => {
     if (backendReady && animationFinished) {
-      setProgress(100);
+      setProgress(100); // On force la barre à 100% pour le plaisir visuel
+      
+      // Petite pause de 0.5s pour voir le 100% vert (ou rouge)
       const t = setTimeout(() => {
         setShowSplash(false); 
-      }, 800); 
+      }, 500); 
       return () => clearTimeout(t);
     }
   }, [backendReady, animationFinished]);
@@ -112,6 +131,11 @@ function App() {
   const onVideoEnd = () => {
     setAnimationFinished(true);
   };
+
+  // CAS D'ERREUR FATALE (Serveur HS après 60s)
+  if (isTimeoutError) {
+      return <LoadingTimeout />;
+  }
 
   return (
     <>
@@ -124,7 +148,7 @@ function App() {
         )}
       </AnimatePresence>
 
-      {/* Le site est chargé en arrière-plan, mais accessible */}
+      {/* Le site est là, caché, mais ne s'affichera que quand le splash partira */}
       <Box sx={{ 
           height: '100vh', 
           overflow: showSplash ? 'hidden' : 'auto' 
