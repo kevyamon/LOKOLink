@@ -5,28 +5,21 @@ import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
-import api from './services/api';
+import api from './services/api'; 
 
-// --- COMPOSANTS DE BASE ---
+// Composants
 import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
 
-// --- PRÉ-IMPORTATION (POUR ÉVITER LE DEUXIÈME LOADER) ---
-// On lance le téléchargement du fichier JS de la HomePage immédiatement
-const homePagePromise = import('./pages/HomePage'); 
-
-// --- PAGES (Lazy Loading) ---
-const HomePage = React.lazy(() => homePagePromise); // On utilise la promesse lancée
+// --- PAGES (Lazy Loading STANDARD) ---
+// On retire la promesse manuelle qui faisait planter
+const HomePage = React.lazy(() => import('./pages/HomePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage'));
-const JoinSessionPage = React.lazy(() => import('./pages/JoinSessionPage')); // <--- IMPORT AJOUTÉ
-
-// Auth
+const JoinSessionPage = React.lazy(() => import('./pages/JoinSessionPage'));
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage'));
 const EternalRegisterPage = React.lazy(() => import('./pages/EternalRegisterPage'));
-
-// Délégué & Admin
 const SessionCreatePage = React.lazy(() => import('./pages/SessionCreatePage'));
 const DelegateDashboardPage = React.lazy(() => import('./pages/DelegateDashboardPage'));
 const DelegateSessionsPage = React.lazy(() => import('./pages/DelegateSessionsPage'));
@@ -45,7 +38,7 @@ const AdminRoute = () => {
 };
 
 function App() {
-  const [showSplash, setShowSplash] = useState(true); // On contrôle l'affichage, pas le chargement
+  const [showSplash, setShowSplash] = useState(true);
   const [progress, setProgress] = useState(0);
   const [backendReady, setBackendReady] = useState(false);
   const [animationFinished, setAnimationFinished] = useState(false);
@@ -54,17 +47,16 @@ function App() {
 
   // 1. GESTION VIDÉO
   useEffect(() => {
-    const videoElement = videoRef.current;
-    // Note: videoRef peut être null au premier render car le composant est conditionnel
-    // Mais avec la nouvelle structure, on va le gérer différemment.
+    // On laisse le composant SplashScreen gérer la lecture
+    // Ce useEffect sert juste de sécurité globale
   }, []);
 
-  // 2. LOGIQUE DE CHARGEMENT ET PING
+  // 2. LOGIQUE DE CHARGEMENT
   useEffect(() => {
     let isMounted = true;
     let pingInterval;
 
-    // A. Barre de progression visuelle
+    // A. Barre de progression
     const progressTimer = setInterval(() => {
       setProgress((old) => {
         if (old >= 90) return 90; 
@@ -73,15 +65,10 @@ function App() {
       });
     }, 200);
 
-    // B. Ping Serveur + Préchargement Page
+    // B. Ping Serveur
     const checkServer = async () => {
         try {
-            // On attend que le backend réponde
             await api.get('/');
-            
-            // On attend aussi que la page d'accueil soit téléchargée (normalement instantané ici)
-            await homePagePromise;
-
             if (isMounted) setBackendReady(true);
         } catch (e) {
             console.log("Serveur dort encore...");
@@ -115,40 +102,34 @@ function App() {
   useEffect(() => {
     if (backendReady && animationFinished) {
       setProgress(100);
-      // On attend un peu pour que l'utilisateur voie le 100%
       const t = setTimeout(() => {
-        setShowSplash(false); // Le rideau tombe
+        setShowSplash(false); 
       }, 800); 
       return () => clearTimeout(t);
     }
   }, [backendReady, animationFinished]);
 
-  // Callback passé au composant SplashScreen pour savoir quand la vidéo est finie
   const onVideoEnd = () => {
     setAnimationFinished(true);
   };
 
   return (
     <>
-      {/* 1. LE SPLASH SCREEN (Superposé avec z-index élevé) */}
       <AnimatePresence>
         {showSplash && (
            <SplashScreen 
              progress={progress} 
-             onVideoEnd={onVideoEnd} // On passe la fonction callback
+             onVideoEnd={onVideoEnd} 
            />
         )}
       </AnimatePresence>
 
-      {/* 2. LE SITE (Chargé en arrière-plan) */}
-      {/* On cache le scroll tant que le splash est là */}
+      {/* Le site est chargé en arrière-plan, mais accessible */}
       <Box sx={{ 
-          height: showSplash ? '100vh' : 'auto', 
+          height: '100vh', 
           overflow: showSplash ? 'hidden' : 'auto' 
       }}>
         <AnimatePresence mode="wait">
-          {/* On retire le LazySpinner global pour éviter le flash, 
-              car on a déjà préchargé HomePage */}
           <Suspense fallback={null}> 
             <Routes location={location} key={location.pathname}>
               <Route path="/" element={<Layout />}>

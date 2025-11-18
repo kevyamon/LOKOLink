@@ -8,17 +8,15 @@
     <title>LOKOlink</title>
 
     <style>
-      /* Fond noir immédiat pour tuer le flash blanc */
+      /* On garde le fond noir pour l'immersion, mais on enlève overflow: hidden ici */
       body, html { 
         margin: 0; 
         padding: 0; 
         background-color: #000000; 
         width: 100%; 
         height: 100%; 
-        overflow: hidden; 
       }
       
-      /* Centrage absolu */
       #root { 
         width: 100%; 
         height: 100%; 
@@ -27,10 +25,7 @@
         align-items: center;
       }
       
-      /* PRÉ-LOADER STATIQUE 
-         Il imite exactement le conteneur de la vidéo du Splash Screen 
-         pour une transition invisible.
-      */
+      /* Le Loader Initial (HTML) */
       .initial-loader {
         position: fixed;
         top: 0; left: 0; width: 100%; height: 100%;
@@ -40,25 +35,15 @@
         align-items: center;
         background-color: #000000;
         z-index: 99999;
+        /* On permet de cliquer au travers au cas où il bug */
+        pointer-events: none; 
       }
 
       .initial-logo {
-        /* TAILLE EXACTE DU SPLASH SCREEN (250px) */
         width: 250px;
         height: 250px;
         object-fit: contain;
         border-radius: 50%;
-        /* Pas d'animation = Pas d'impression d'attente */
-      }
-      
-      /* Petit texte pour faire patienter (optionnel, style LOKO) */
-      .loading-text {
-        margin-top: 20px;
-        font-family: sans-serif;
-        color: #333; /* Très sombre pour ne pas flasher */
-        font-size: 12px;
-        letter-spacing: 2px;
-        text-transform: uppercase;
       }
     </style>
   </head>
@@ -66,7 +51,6 @@
     <div id="root">
       <div class="initial-loader">
         <img src="/logo.png" alt="LOKOlink" class="initial-logo" />
-        <div class="loading-text">Chargement...</div>
       </div>
     </div>
     <script type="module" src="/src/main.jsx"></script>
