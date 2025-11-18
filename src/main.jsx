@@ -14,11 +14,12 @@ import {
 import { BrowserRouter } from 'react-router-dom';
 import backgroundImage from './assets/background.png';
 import { AuthProvider } from './contexts/AuthContext'; 
+import { DataProvider } from './contexts/DataContext'; // <--- NOUVEAU IMPORT
 
 // 1. DÉFINITION DES STYLES GLOBAUX
+// ... (styles inchangés) ...
 const globalStyles = {
   body: {
-    // L'image est gérée ici
     backgroundImage: `url(${backgroundImage})`,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
@@ -27,10 +28,8 @@ const globalStyles = {
     minHeight: '100vh',
     margin: 0,
     padding: 0,
-    // On force la transparence ici pour voir l'image
     backgroundColor: 'transparent', 
   },
-  // On s'assure que le conteneur racine est aussi transparent
   '#root': {
     minHeight: '100vh',
     backgroundColor: 'transparent',
@@ -46,10 +45,6 @@ const theme = createTheme({
     secondary: {
       main: '#dc004e',
     },
-    // CORRECTION CRITIQUE ICI :
-    // On remet une couleur "réelle" (#ffffff) pour que MUI puisse faire ses calculs
-    // (ombres, contrastes, snackbars, modales).
-    // La transparence visuelle est gérée par globalStyles ci-dessus.
     background: {
       default: '#ffffff', 
       paper: '#ffffff',
@@ -62,16 +57,14 @@ const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         body: {
-          // On force la transparence du body au niveau CSS Baseline aussi
           backgroundColor: 'transparent',
         },
       },
     },
-    // On peut aussi forcer la transparence des Cards/Paper si tu veux qu'elles soient semi-transparentes
     MuiPaper: {
       styleOverrides: {
         root: {
-          backgroundImage: 'none', // Évite les overlays blancs automatiques du mode sombre/clair
+          backgroundImage: 'none', 
         }
       }
     }
@@ -83,9 +76,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <ThemeProvider theme={theme}>
       <BrowserRouter>
         <AuthProvider>
-          <CssBaseline />
-          <GlobalStyles styles={globalStyles} />
-          <App />
+          {/* ENVELOPPEMENT FINAL */}
+          <DataProvider>
+            <CssBaseline />
+            <GlobalStyles styles={globalStyles} />
+            <App />
+          </DataProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

@@ -5,6 +5,7 @@ import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
+import { useData } from './contexts/DataContext'; // <--- NOUVEAU IMPORT
 import api from './services/api'; 
 
 // --- COMPOSANTS ---
@@ -13,6 +14,7 @@ import SplashScreen from './components/SplashScreen';
 import LoadingTimeout from './components/LoadingTimeout';
 
 // --- PAGES (Lazy Loading) ---
+// ... (imports des pages inchangés) ...
 const HomePage = React.lazy(() => import('./pages/HomePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage'));
@@ -49,10 +51,11 @@ function App() {
   const [backendReady, setBackendReady] = useState(false);
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [fixedAnimationTimerFinished, setFixedAnimationTimerFinished] = useState(false);
+  // NOUVEL ÉTAT : Attendre la récupération des données
+  const [sessionsFetched, setSessionsFetched] = useState(false); 
   
-  // NOUVEAU : État qui garantit le temps minimum de la vidéo
-  const [fixedAnimationTimerFinished, setFixedAnimationTimerFinished] = useState(false); 
-  
+  const { setInitialSessions } = useData(); // <--- RÉCUPÉRATION DE LA FONCTION CONTEXT
   const location = useLocation();
   const videoRef = useRef(null); 
 
@@ -78,40 +81,49 @@ function App() {
     const MAX_WAIT_TIME = 60000; 
     const startTime = Date.now();
 
-    // Minuteur d'Animation Fixe (2.5s)
     const minTimeTimeout = setTimeout(() => {
         if (isMounted) setFixedAnimationTimerFinished(true);
     }, 2500); 
 
     progressTimer = setInterval(() => {
       setProgress((old) => {
+        // ON BLOQUE À 90% (Backend réveillé) ET AUSSI À 99% (Données récupérées)
+        if (old >= 99) return 99;
         if (old >= 90) return 90; 
+        
         const diff = Math.random() * (old > 70 ? 2 : 10);
         return Math.min(old + diff, 90);
       });
     }, 200);
 
-    const checkServer = async () => {
+    // NOUVELLE FONCTION : Ping + Récupération des données critiques
+    const checkServerAndFetchData = async () => {
         try {
-            await api.get('/'); 
+            await api.get('/'); // 1. Ping Serveur (wake up Render)
+            setBackendReady(true);
+            
+            const { data } = await api.get('/api/sessions/active'); // 2. Récupérer les données critiques
+            
             if (isMounted) {
-                setBackendReady(true);
+                setInitialSessions(data); // Stocker dans le contexte
+                setSessionsFetched(true); // Signaler que les données sont là
+                setProgress(99); // Avancer la barre à 99%
                 clearInterval(pingInterval);
             }
         } catch (e) {
-            console.log("En attente du serveur...");
+            console.log("En attente ou erreur serveur/données...", e);
         }
     };
     
-    checkServer();
+    checkServerAndFetchData(); // Premier essai immédiat
     
     pingInterval = setInterval(() => {
         if (Date.now() - startTime > MAX_WAIT_TIME) {
             clearInterval(pingInterval);
             clearInterval(progressTimer);
             if (isMounted) setIsTimeoutError(true);
-        } else if (!backendReady) {
-            checkServer();
+        } else if (!sessionsFetched) { // On ping tant que les sessions ne sont pas là
+            checkServerAndFetchData();
         }
     }, 2000);
 
@@ -119,32 +131,32 @@ function App() {
       isMounted = false;
       clearInterval(progressTimer);
       clearInterval(pingInterval);
-      clearTimeout(minTimeTimeout); // Cleanup du timer d'animation
+      clearTimeout(minTimeTimeout);
     };
-  }, [backendReady]);
+  }, []); // Vide, car le ping est géré dans le useEffect
 
-  // 3. FERMETURE DU SPLASH (Uniquement quand TOUT est prêt)
+  // 3. FERMETURE DU SPLASH
   useEffect(() => {
-    // Condition de fermeture : Backend répond ET Temps minimum passé.
-    if (backendReady && fixedAnimationTimerFinished) {
+    // La condition de fermeture est maintenant: Sessions Fetchées ET Temps minimum passé
+    if (sessionsFetched && fixedAnimationTimerFinished) {
       setProgress(100); 
       const t = setTimeout(() => {
-        setShowSplash(false); 
+        setShowSplash(false); // FINI ! Le contenu est prêt derrière.
       }, 500); 
       return () => clearTimeout(t);
     }
-  }, [backendReady, fixedAnimationTimerFinished]);
+  }, [sessionsFetched, fixedAnimationTimerFinished]);
 
-  // PRIORITÉ ABSOLUE : Si pas d'internet OU serveur mort -> Écran Erreur
-  if (isOffline || isTimeoutError) {
-      return <LoadingTimeout />;
-  }
+  const onVideoEnd = () => {
+    // Cette fonction n'est plus critique pour la logique mais est conservée par sécurité
+  };
+
+  if (isOffline || isTimeoutError) return <LoadingTimeout />;
 
   if (showSplash) {
     return (
       <AnimatePresence>
          {showSplash && (
-            // onVideoEnd n'est plus passé ici
             <SplashScreen progress={progress} />
          )}
       </AnimatePresence>

@@ -5,7 +5,7 @@ import {
   Typography,
   Container,
   Box,
-  CircularProgress,
+  CircularProgress, // Supprimé du rendu principal
   Alert,
   Grid,
   Card,
@@ -22,72 +22,83 @@ import api from '../services/api';
 import socket from '../services/socket';
 import { PageTransition } from '../components/PageTransition';
 import AnimatedModal from '../components/AnimatedModal';
-import { useAuth } from '../contexts/AuthContext'; // Pour vérifier si connecté
+import { useAuth } from '../contexts/AuthContext';
+import { useData } from '../contexts/DataContext'; // <--- NOUVEAU IMPORT
 
 const HomePage = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { sessions: initialSessions, setInitialSessions } = useData(); // <--- UTILISE LE CONTEXTE
 
   // --- États ---
-  const [sessions, setSessions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // On utilise l'état local pour les modifications en temps réel, 
+  // mais on l'initialise avec les données pré-chargées.
+  const [sessions, setSessions] = useState(initialSessions); 
+  // Le 'loading' est retiré car géré par le SplashScreen
   const [error, setError] = useState(null);
   
   const [searchTerm, setSearchTerm] = useState('');
   
-  // États Modals Filleul
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
   
-  // États Modals Suppression (Long Press)
   const longPressTimer = useRef();
   const isLongPress = useRef(false);
   const [sessionToDelete, setSessionToDelete] = useState(null);
   const [confirmDeleteModal, setConfirmDeleteModal] = useState(false);
-  const [passwordModal, setPasswordModal] = useState(false); // Sert pour Delete ET Access
+  const [passwordModal, setPasswordModal] = useState(false);
   const [deleguePassword, setDeleguePassword] = useState('');
-  const [actionLoading, setActionLoading] = useState(false); // Loading générique
-  const [actionError, setActionError] = useState(null); // Erreur générique
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState(null);
   const [snackbarMessage, setSnackbarMessage] = useState(null);
 
-  // État Modal Accès Délégué (Double Click)
   const [isAccessMode, setIsAccessMode] = useState(false); 
 
-  // --- Chargement ---
+  // --- Remplacer l'ancien fetch (qui n'est plus nécessaire) ---
   const fetchSessions = async () => {
     try {
-      const { data } = await api.get('/api/sessions/active');
-      setSessions(Array.isArray(data) ? data : []);
+        // Cette fonction sera utilisée uniquement par le socket pour recharger
+        const { data } = await api.get('/api/sessions/active');
+        setSessions(data);
+        setInitialSessions(data); // On met à jour le contexte aussi
     } catch (err) {
-      console.error('Erreur chargement sessions:', err);
-      setError('Impossible de charger les sessions.');
-      setSessions([]);
-    } finally {
-      setLoading(false);
+        console.error('Erreur rechargement sessions:', err);
     }
   };
 
   useEffect(() => { 
-    fetchSessions(); 
+    // Au premier montage, on utilise les données du contexte (initialSessions)
+    // Pas de fetch initial ici.
+
     socket.on('session:created', (newSession) => { if (newSession.isActive) setSessions(prev => [newSession, ...prev]); });
     socket.on('session:updated', (updatedSession) => {
+      // Si la session mise à jour est active, on l'update. Si inactive, on la filtre.
       if (updatedSession.isActive) {
         setSessions(prev => {
           const exists = prev.find(s => s._id === updatedSession._id);
           if (exists) return prev.map(s => s._id === updatedSession._id ? updatedSession : s);
-          return [updatedSession, ...prev];
+          return [updatedSession, ...prev]; // Ajout si elle n'existait pas (ex: était inactive)
         });
       } else {
         setSessions(prev => prev.filter(s => s._id !== updatedSession._id));
       }
+      setInitialSessions(sessions); // Mise à jour du contexte pour la persistance
     });
-    socket.on('session:deleted', (deletedId) => { setSessions(prev => prev.filter(s => s._id !== deletedId)); });
+    socket.on('session:deleted', (deletedId) => { 
+      setSessions(prev => prev.filter(s => s._id !== deletedId)); 
+      setInitialSessions(sessions);
+    });
     return () => {
       socket.off('session:created');
       socket.off('session:updated');
       socket.off('session:deleted');
     };
-  }, []);
+  }, [setInitialSessions]); // Dépend de setInitialSessions
+
+  // Met à jour l'état local si le contexte est mis à jour (sécurité)
+  useEffect(() => {
+    setSessions(initialSessions);
+  }, [initialSessions]);
   
   const filteredSessions = useMemo(() => {
     if (!Array.isArray(sessions)) return [];
@@ -96,9 +107,7 @@ const HomePage = () => {
     );
   }, [sessions, searchTerm]);
   
-  // --- Handlers ---
-
-  // 1. Click Simple (Filleul)
+  // --- Handlers (inchangés) ---
   const handleCardClick = (session) => {
     if (isLongPress.current) {
       isLongPress.current = false;
@@ -107,27 +116,23 @@ const HomePage = () => {
     setSelectedSession(session);
     setModalOpen(true);
   };
-
-  // 2. Double Click (Accès Délégué)
+  // ... (handleDoubleClick, handleMouseDown, handleMouseUp, handleModalConfirmFilleul, handleConfirmDeleteStep1, handlePasswordSubmit inchangés) ...
   const handleDoubleClick = (e, session) => {
-    e.stopPropagation(); // Empêche le clic simple de se déclencher (si possible)
-    if (!isAuthenticated) return; // Si pas connecté, rien ne se passe (ou redirect login)
-    
+    e.stopPropagation(); 
+    if (!isAuthenticated) return; 
     setSelectedSession(session);
-    setIsAccessMode(true); // Mode "Accès" activé
-    setPasswordModal(true); // On ouvre le modal de mot de passe
+    setIsAccessMode(true); 
+    setPasswordModal(true); 
     setDeleguePassword('');
     setActionError(null);
   };
   
-  // 3. Long Press (Suppression)
   const handleMouseDown = (session) => {
     isLongPress.current = false;
-    // DÉLAI RÉGLÉ À 3 SECONDES (3000ms)
     longPressTimer.current = setTimeout(() => {
       isLongPress.current = true;
       setSessionToDelete(session);
-      setConfirmDeleteModal(true); // Demande confirmation d'abord
+      setConfirmDeleteModal(true);
     }, 3000);
   };
   
@@ -135,8 +140,6 @@ const HomePage = () => {
     clearTimeout(longPressTimer.current);
   };
   
-  // --- Logique Modals ---
-
   const handleModalConfirmFilleul = () => {
     if (selectedSession) navigate(`/session/${selectedSession._id}`);
     setModalOpen(false);
@@ -144,8 +147,8 @@ const HomePage = () => {
 
   const handleConfirmDeleteStep1 = () => {
     setConfirmDeleteModal(false);
-    setIsAccessMode(false); // Mode "Suppression"
-    setPasswordModal(true); // On demande le mot de passe
+    setIsAccessMode(false);
+    setPasswordModal(true);
     setDeleguePassword('');
     setActionError(null);
   };
@@ -157,16 +160,12 @@ const HomePage = () => {
 
     try {
       if (isAccessMode) {
-        // --- CAS 1 : ACCÈS DASHBOARD ---
-        // On vérifie que le mot de passe est celui du créateur
         await api.post('/api/sessions/verify-password', {
           password: deleguePassword,
           sessionId: selectedSession._id
         });
-        // Si OK, on redirige
         navigate(`/delegue/dashboard/${selectedSession._id}`);
       } else {
-        // --- CAS 2 : SUPPRESSION SESSION ---
         await api.delete(`/api/sessions/${sessionToDelete._id}`, {
           data: { password: deleguePassword },
         });
@@ -181,13 +180,7 @@ const HomePage = () => {
   };
 
   // --- Rendu ---
-  if (loading) {
-    return (
-      <PageTransition>
-        <Container sx={{ textAlign: 'center', mt: 10 }}><CircularProgress /><Typography>Chargement...</Typography></Container>
-      </PageTransition>
-    );
-  }
+  // Le 'if (loading)' a disparu ! La page s'affiche toujours.
 
   if (error) {
     return (
@@ -217,9 +210,9 @@ const HomePage = () => {
           />
         </Box>
 
-       {filteredSessions.length === 0 ? (
+        {filteredSessions.length === 0 ? (
           <Box sx={{ textAlign: 'center', mt: 5, p: 3, bgcolor: 'rgba(255,255,255,0.8)', borderRadius: 2 }}>
-            {/* TEXTE MODIFIÉ ICI */}
+            {/* CORRECTION TEXTE (Demandée précédemment) */}
             <Typography variant="h6" sx={{ color: '#555' }}>
               Aucune session trouvée, essayez d'autres filières.
             </Typography>
@@ -227,7 +220,6 @@ const HomePage = () => {
         ) : (
           <Grid container spacing={3}>
             {filteredSessions.map((session) => (
-              // CORRECTION ICI : Remplacement de 'item' par 'size' pour MUI v6+
               <Grid size={{ xs: 12, sm: 6, md: 4 }} key={session._id}>
                 <Card
                   sx={{
@@ -237,7 +229,7 @@ const HomePage = () => {
                 >
                   <CardActionArea
                     onClick={() => handleCardClick(session)}
-                    onDoubleClick={(e) => handleDoubleClick(e, session)}
+                    onDoubleClick={(e) => handleDoubleClick(e, session)} 
                     onMouseDown={() => handleMouseDown(session)}
                     onMouseUp={handleMouseUp}
                     onTouchStart={() => handleMouseDown(session)}
@@ -255,7 +247,7 @@ const HomePage = () => {
           </Grid>
         )}
 
-        {/* MODAL 1: Confirmation Filleul (Simple Click) */}
+        {/* MODALS (inchangés) */}
         <AnimatedModal open={modalOpen} onClose={() => setModalOpen(false)}>
           <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>{selectedSession?.sessionName}</Typography>
           <Typography sx={{ mt: 2 }}>Est-ce bien votre filière ?</Typography>
@@ -265,7 +257,6 @@ const HomePage = () => {
           </Stack>
         </AnimatedModal>
 
-        {/* MODAL 2: Confirmation Suppression (Long Press Step 1) */}
         <AnimatedModal open={confirmDeleteModal} onClose={() => setConfirmDeleteModal(false)}>
           <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', color: 'error.main' }}>Désactiver la session ?</Typography>
           <Typography sx={{ mt: 2 }}>Voulez-vous vraiment désactiver <strong>{sessionToDelete?.sessionName}</strong> ?</Typography>
@@ -275,7 +266,6 @@ const HomePage = () => {
           </Stack>
         </AnimatedModal>
 
-        {/* MODAL 3: Mot de Passe (Commun pour Accès et Suppression) */}
         <AnimatedModal open={passwordModal} onClose={() => setPasswordModal(false)}>
           <Box component="form" onSubmit={handlePasswordSubmit}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
