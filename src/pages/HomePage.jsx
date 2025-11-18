@@ -224,7 +224,8 @@ const HomePage = () => {
         ) : (
           <Grid container spacing={3}>
             {filteredSessions.map((session) => (
-              <Grid item xs={12} sm={6} md={4} key={session._id}>
+              // CORRECTION ICI : Remplacement de 'item' par 'size' pour MUI v6+
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={session._id}>
                 <Card
                   sx={{
                     height: '100%', borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
@@ -233,7 +234,7 @@ const HomePage = () => {
                 >
                   <CardActionArea
                     onClick={() => handleCardClick(session)}
-                    onDoubleClick={(e) => handleDoubleClick(e, session)} // DOUBLE CLICK ICI
+                    onDoubleClick={(e) => handleDoubleClick(e, session)}
                     onMouseDown={() => handleMouseDown(session)}
                     onMouseUp={handleMouseUp}
                     onTouchStart={() => handleMouseDown(session)}
