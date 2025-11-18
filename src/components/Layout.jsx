@@ -1,16 +1,13 @@
-  // src/components/Layout.jsx
+// src/components/Layout.jsx
 
 import React from 'react';
 import { Outlet } from 'react-router-dom';
 import { Box } from '@mui/material';
-import Header from './Header'; // On importera bientôt
-import Footer from './Footer'; // On importera bientôt
-
-// On importe la Sidebar (elle sera contrôlée par le Header)
+import Header from './Header';
+import Footer from './Footer';
 import Sidebar from './Sidebar';
 
 const Layout = () => {
-  // État pour contrôler l'ouverture/fermeture de la Sidebar
   const [isSidebarOpen, setSidebarOpen] = React.useState(false);
 
   const toggleSidebar = () => {
@@ -33,11 +30,11 @@ const Layout = () => {
       <Box
         component="main"
         sx={{
-          flexGrow: 1, // Prend tout l'espace vertical restant
-          p: 3, // Ajoute un "padding" interne
-          // On s'assure que le contenu n'est pas caché sous le Header
-          // (On affinera ça avec la hauteur du Header)
+          flexGrow: 1, 
+          p: 3, 
           mt: '64px',
+          // FIX UX : Assurer la transparence par défaut du contenu pour voir le fond
+          backgroundColor: 'transparent !important',
         }}
       >
         {/* 'Outlet' est l'endroit où React Router affichera la page active */}
