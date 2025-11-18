@@ -12,7 +12,7 @@ import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
 import LoadingTimeout from './components/LoadingTimeout';
 
-// --- PAGES (Lazy Loading STANDARD) ---
+// --- PAGES (Lazy Loading) ---
 const HomePage = React.lazy(() => import('./pages/HomePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage'));
@@ -47,9 +47,11 @@ function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [progress, setProgress] = useState(0);
   const [backendReady, setBackendReady] = useState(false);
-  const [animationFinished, setAnimationFinished] = useState(false);
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  
+  // NOUVEAU : État qui garantit le temps minimum de la vidéo
+  const [fixedAnimationTimerFinished, setFixedAnimationTimerFinished] = useState(false); 
   
   const location = useLocation();
   const videoRef = useRef(null); 
@@ -68,13 +70,18 @@ function App() {
     };
   }, []);
 
-  // 2. LOGIQUE DE CHARGEMENT
+  // 2. LOGIQUE DE CHARGEMENT & PING
   useEffect(() => {
     let isMounted = true;
     let progressTimer;
     let pingInterval;
     const MAX_WAIT_TIME = 60000; 
     const startTime = Date.now();
+
+    // Minuteur d'Animation Fixe (2.5s)
+    const minTimeTimeout = setTimeout(() => {
+        if (isMounted) setFixedAnimationTimerFinished(true);
+    }, 2500); 
 
     progressTimer = setInterval(() => {
       setProgress((old) => {
@@ -112,38 +119,33 @@ function App() {
       isMounted = false;
       clearInterval(progressTimer);
       clearInterval(pingInterval);
+      clearTimeout(minTimeTimeout); // Cleanup du timer d'animation
     };
   }, [backendReady]);
 
-  // 3. FERMETURE DU SPLASH
+  // 3. FERMETURE DU SPLASH (Uniquement quand TOUT est prêt)
   useEffect(() => {
-    if (backendReady && animationFinished) {
+    // Condition de fermeture : Backend répond ET Temps minimum passé.
+    if (backendReady && fixedAnimationTimerFinished) {
       setProgress(100); 
       const t = setTimeout(() => {
         setShowSplash(false); 
       }, 500); 
       return () => clearTimeout(t);
     }
-  }, [backendReady, animationFinished]);
-
-  const onVideoEnd = () => {
-    setAnimationFinished(true);
-  };
+  }, [backendReady, fixedAnimationTimerFinished]);
 
   // PRIORITÉ ABSOLUE : Si pas d'internet OU serveur mort -> Écran Erreur
   if (isOffline || isTimeoutError) {
       return <LoadingTimeout />;
   }
 
-  // --- FIX : Utilisation uniquement de showSplash ---
   if (showSplash) {
     return (
       <AnimatePresence>
          {showSplash && (
-            <SplashScreen 
-              progress={progress} 
-              onVideoEnd={onVideoEnd} 
-            />
+            // onVideoEnd n'est plus passé ici
+            <SplashScreen progress={progress} />
          )}
       </AnimatePresence>
     );
