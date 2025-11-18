@@ -7,12 +7,12 @@ import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
 import api from './services/api'; 
 
-// --- COMPOSANTS DE BASE ---
+// --- COMPOSANTS ---
 import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
-import LoadingTimeout from './components/LoadingTimeout'; // <--- IMPORT AJOUTÉ
+import LoadingTimeout from './components/LoadingTimeout';
 
-// --- PAGES (Lazy Loading) ---
+// --- PAGES (Lazy Loading STANDARD) ---
 const HomePage = React.lazy(() => import('./pages/HomePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage'));
@@ -48,61 +48,61 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [backendReady, setBackendReady] = useState(false);
   const [animationFinished, setAnimationFinished] = useState(false);
-  const [isTimeoutError, setIsTimeoutError] = useState(false); // <--- NOUVEL ÉTAT
+  const [isTimeoutError, setIsTimeoutError] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
   
   const location = useLocation();
   const videoRef = useRef(null); 
 
-  // 1. GESTION VIDÉO
+  // 1. ÉCOUTEUR DE RÉSEAU
   useEffect(() => {
-    // La gestion est faite dans SplashScreen, ce hook sert de sécurité si besoin
+    const handleOffline = () => setIsOffline(true);
+    const handleOnline = () => setIsOffline(false);
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
   }, []);
 
-  // 2. LOGIQUE DE CHARGEMENT & PING "PATIENT"
+  // 2. LOGIQUE DE CHARGEMENT
   useEffect(() => {
     let isMounted = true;
     let progressTimer;
     let pingInterval;
-    const MAX_WAIT_TIME = 60000; // 60 secondes max avant erreur
+    const MAX_WAIT_TIME = 60000; 
     const startTime = Date.now();
 
-    // A. Barre de progression "Psychologique"
     progressTimer = setInterval(() => {
       setProgress((old) => {
-        // On bloque à 90% tant que le backend n'est pas prêt
         if (old >= 90) return 90; 
-        // Plus on avance, plus on ralentit pour ne pas atteindre 90 trop vite
         const diff = Math.random() * (old > 70 ? 2 : 10);
         return Math.min(old + diff, 90);
       });
     }, 200);
 
-    // B. Ping Serveur (La boucle de réveil)
     const checkServer = async () => {
         try {
-            console.log("Ping serveur...");
-            await api.get('/'); // Tente de joindre le backend
-            
+            await api.get('/'); 
             if (isMounted) {
-                console.log("Serveur réveillé !");
-                setBackendReady(true); // VICTOIRE !
+                setBackendReady(true);
                 clearInterval(pingInterval);
             }
         } catch (e) {
-            console.log("Serveur dort encore (ou erreur réseau)... on attend.");
+            console.log("En attente du serveur...");
         }
     };
     
-    // Premier essai immédiat
     checkServer();
     
-    // Puis on réessaie toutes les 2 secondes
     pingInterval = setInterval(() => {
-        // Si on a dépassé le temps max (60s), on déclare le décès du serveur
         if (Date.now() - startTime > MAX_WAIT_TIME) {
             clearInterval(pingInterval);
             clearInterval(progressTimer);
-            if (isMounted) setIsTimeoutError(true); // Affiche l'écran d'erreur
+            if (isMounted) setIsTimeoutError(true);
         } else if (!backendReady) {
             checkServer();
         }
@@ -115,12 +115,10 @@ function App() {
     };
   }, [backendReady]);
 
-  // 3. FERMETURE DU SPLASH (Uniquement quand TOUT est prêt)
+  // 3. FERMETURE DU SPLASH
   useEffect(() => {
     if (backendReady && animationFinished) {
-      setProgress(100); // On force la barre à 100% pour le plaisir visuel
-      
-      // Petite pause de 0.5s pour voir le 100% vert (ou rouge)
+      setProgress(100); 
       const t = setTimeout(() => {
         setShowSplash(false); 
       }, 500); 
@@ -132,55 +130,54 @@ function App() {
     setAnimationFinished(true);
   };
 
-  // CAS D'ERREUR FATALE (Serveur HS après 60s)
-  if (isTimeoutError) {
+  // PRIORITÉ ABSOLUE : Si pas d'internet OU serveur mort -> Écran Erreur
+  if (isOffline || isTimeoutError) {
       return <LoadingTimeout />;
   }
 
-  return (
-    <>
+  // --- FIX : Utilisation uniquement de showSplash ---
+  if (showSplash) {
+    return (
       <AnimatePresence>
-        {showSplash && (
-           <SplashScreen 
-             progress={progress} 
-             onVideoEnd={onVideoEnd} 
-           />
-        )}
+         {showSplash && (
+            <SplashScreen 
+              progress={progress} 
+              onVideoEnd={onVideoEnd} 
+            />
+         )}
       </AnimatePresence>
+    );
+  }
 
-      {/* Le site est là, caché, mais ne s'affichera que quand le splash partira */}
-      <Box sx={{ 
-          height: '100vh', 
-          overflow: showSplash ? 'hidden' : 'auto' 
-      }}>
-        <AnimatePresence mode="wait">
-          <Suspense fallback={null}> 
-            <Routes location={location} key={location.pathname}>
-              <Route path="/" element={<Layout />}>
-                <Route index element={<HomePage />} />
-                <Route path="session/:id" element={<SessionPage />} />
-                <Route path="rejoindre/:code" element={<JoinSessionPage />} />
-                <Route path="rejoindre" element={<JoinSessionPage />} />
-                <Route path="login" element={<LoginPage />} />
-                <Route path="register" element={<RegisterPage />} />
-                <Route path="register-eternal" element={<EternalRegisterPage />} />
-                <Route element={<ProtectedRoute />}>
-                  <Route path="delegue/creer" element={<SessionCreatePage />} />
-                  <Route path="delegue/sessions" element={<DelegateSessionsPage />} />
-                  <Route path="delegue/dashboard/:id" element={<DelegateDashboardPage />} />
-                </Route>
-                <Route element={<AdminRoute />}>
-                  <Route path="superadmin/dashboard" element={<SuperAdminDashboardPage />} />
-                </Route>
-                <Route path="*" element={<NotFoundPage />} />
-                <Route path="delegue/login" element={<Navigate to="/login" replace />} />
-                <Route path="superadmin/login" element={<Navigate to="/login" replace />} />
+  return (
+    <Box sx={{ height: '100vh', overflow: 'auto' }}>
+      <AnimatePresence mode="wait">
+        <Suspense fallback={null}> 
+          <Routes location={location} key={location.pathname}>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<HomePage />} />
+              <Route path="session/:id" element={<SessionPage />} />
+              <Route path="rejoindre/:code" element={<JoinSessionPage />} />
+              <Route path="rejoindre" element={<JoinSessionPage />} />
+              <Route path="login" element={<LoginPage />} />
+              <Route path="register" element={<RegisterPage />} />
+              <Route path="register-eternal" element={<EternalRegisterPage />} />
+              <Route element={<ProtectedRoute />}>
+                <Route path="delegue/creer" element={<SessionCreatePage />} />
+                <Route path="delegue/sessions" element={<DelegateSessionsPage />} />
+                <Route path="delegue/dashboard/:id" element={<DelegateDashboardPage />} />
               </Route>
-            </Routes>
-          </Suspense>
-        </AnimatePresence>
-      </Box>
-    </>
+              <Route element={<AdminRoute />}>
+                <Route path="superadmin/dashboard" element={<SuperAdminDashboardPage />} />
+              </Route>
+              <Route path="*" element={<NotFoundPage />} />
+              <Route path="delegue/login" element={<Navigate to="/login" replace />} />
+              <Route path="superadmin/login" element={<Navigate to="/login" replace />} />
+            </Route>
+          </Routes>
+        </Suspense>
+      </AnimatePresence>
+    </Box>
   );
 }
 

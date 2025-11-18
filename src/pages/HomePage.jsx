@@ -217,9 +217,12 @@ const HomePage = () => {
           />
         </Box>
 
-        {filteredSessions.length === 0 ? (
+       {filteredSessions.length === 0 ? (
           <Box sx={{ textAlign: 'center', mt: 5, p: 3, bgcolor: 'rgba(255,255,255,0.8)', borderRadius: 2 }}>
-            <Typography variant="h6">Aucune session active.</Typography>
+            {/* TEXTE MODIFIÉ ICI */}
+            <Typography variant="h6" sx={{ color: '#555' }}>
+              Aucune session trouvée, essayez d'autres filières.
+            </Typography>
           </Box>
         ) : (
           <Grid container spacing={3}>
