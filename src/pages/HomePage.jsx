@@ -20,7 +20,7 @@ import { useNavigate } from 'react-router-dom';
 import { AdminPanelSettings } from '@mui/icons-material';
 import api from '../services/api';
 import socket from '../services/socket';
-// import { PageTransition } from '../components/PageTransition'; // <-- RETIRÉ : Gérée par App.jsx
+// import { PageTransition } from '../components/PageTransition'; // <-- Déjà retiré
 import AnimatedModal from '../components/AnimatedModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext'; 
@@ -31,6 +31,8 @@ const HomePage = () => {
   const { sessions: initialSessions, setInitialSessions } = useData(); 
 
   // --- États ---
+  // On utilise l'état local pour les modifications en temps réel, 
+  // mais on l'initialise avec les données pré-chargées.
   const [sessions, setSessions] = useState(initialSessions); 
   const [error, setError] = useState(null);
   
@@ -64,47 +66,66 @@ const HomePage = () => {
   };
 
   useEffect(() => { 
-    // Au premier montage, on utilise les données du contexte (initialSessions)
-    // Pas de fetch initial ici.
-
-    socket.on('session:created', (newSession) => { if (newSession.isActive) setSessions(prev => [newSession, ...prev]); });
-    socket.on('session:updated', (updatedSession) => {
-      // Si la session mise à jour est active, on l'update. Si inactive, on la filtre.
-      if (updatedSession.isActive) {
+    
+    // --- NOUVELLE LOGIQUE SOCKET : Mise à jour de l'état local ET du Contexte (pour synchronisation)
+    const handleSessionUpdate = (updatedSession) => {
+        if (updatedSession.isActive) {
+            setSessions(prev => {
+                const exists = prev.find(s => s._id === updatedSession._id);
+                // Si la session existe, on la met à jour. Sinon, on l'ajoute.
+                const newSessions = exists 
+                    ? prev.map(s => s._id === updatedSession._id ? updatedSession : s)
+                    : [updatedSession, ...prev]; 
+                
+                // On met à jour le contexte avec la nouvelle liste
+                setInitialSessions(newSessions);
+                return newSessions;
+            });
+        } else {
+            // Si inactive, on la filtre
+            setSessions(prev => {
+                const newSessions = prev.filter(s => s._id !== updatedSession._id);
+                // On met à jour le contexte avec la nouvelle liste
+                setInitialSessions(newSessions);
+                return newSessions;
+            });
+        }
+    };
+    
+    const handleSessionDeleted = (deletedId) => { 
         setSessions(prev => {
-          const exists = prev.find(s => s._id === updatedSession._id);
-          if (exists) return prev.map(s => s._id === updatedSession._id ? updatedSession : s);
-          return [updatedSession, ...prev]; // Ajout si elle n'existait pas (ex: était inactive)
+            const newSessions = prev.filter(s => s._id !== deletedId);
+            setInitialSessions(newSessions);
+            return newSessions;
         });
-      } else {
-        setSessions(prev => prev.filter(s => s._id !== updatedSession._id));
-      }
-      // Il faut cloner 'sessions' avant de l'envoyer à setInitialSessions
-      // car sinon tu envoies un état qui n'est pas encore mis à jour.
-      // Une solution simple est de refetch les sessions actives pour l'état du contexte:
-      // fetchSessions(); 
-      // Ou, pour éviter un fetch, utiliser un callback si tu voulais vraiment mettre à jour le contexte après la mise à jour locale.
-      // Mais dans le cas de Socket.io, le plus sûr est de laisser le contexte s'initialiser à partir d'App.jsx
-    });
-    socket.on('session:deleted', (deletedId) => { 
-      setSessions(prev => prev.filter(s => s._id !== deletedId)); 
-      // setInitialSessions(sessions); // Retiré pour la même raison
-    });
+    };
     
-    // IMPORTANT : On ajoute cette dépendance pour la mise à jour du contexte APRES les opérations
-    // Si tu veux vraiment que le contexte ait la dernière version, tu peux utiliser un useEffect:
-    useEffect(() => {
-        setInitialSessions(sessions);
-    }, [sessions, setInitialSessions]);
+    const handleSessionCreated = (newSession) => {
+        if (newSession.isActive) {
+            setSessions(prev => {
+                const newSessions = [newSession, ...prev];
+                setInitialSessions(newSessions);
+                return newSessions;
+            });
+        }
+    };
     
+    socket.on('session:created', handleSessionCreated);
+    socket.on('session:updated', handleSessionUpdate);
+    socket.on('session:deleted', handleSessionDeleted);
+
     return () => {
-      socket.off('session:created');
-      socket.off('session:updated');
-      socket.off('session:deleted');
+      socket.off('session:created', handleSessionCreated);
+      socket.off('session:updated', handleSessionUpdate);
+      socket.off('session:deleted', handleSessionDeleted);
     };
   }, [setInitialSessions]); 
 
-  // Met à jour l'état local si le contexte est mis à jour (sécurité)
+  // FIX RENDER LOOP CAUSE #321 : 
+  // Ce useEffect ne fait que synchroniser l'état local (sessions) avec le contexte (initialSessions)
+  // lorsque le contexte change (ce qui arrive au premier chargement dans App.jsx).
+  // La boucle infinie précédente est maintenant rompue car le setInitialSessions n'est plus ici
+  // mais dans la logique Socket juste au-dessus, et celle-ci est contrôlée.
   useEffect(() => {
     setSessions(initialSessions);
   }, [initialSessions]);
@@ -180,9 +201,6 @@ const HomePage = () => {
         });
         setSnackbarMessage('Session désactivée avec succès !');
         setPasswordModal(false);
-        // Important: La suppression n'a pas mis à jour le contexte global via socket
-        // On doit le faire après la suppression dans le backend, ici on se contente 
-        // de laisser la mise à jour par socket se faire.
       }
     } catch (err) {
       setActionError(err.response?.data?.message || 'Erreur ou mot de passe incorrect.');
@@ -195,13 +213,11 @@ const HomePage = () => {
 
   if (error) {
     return (
-      // RETIRÉ PageTransition pour ne pas avoir de double transition
       <Container maxWidth="md"><Alert severity="error">{error}</Alert></Container>
     );
   }
 
   return (
-    // RETIRÉ PageTransition pour ne pas avoir de double transition
     <Container maxWidth="lg">
       <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ fontWeight: 'bold' }}>
         Bienvenue sur LOKOlink
@@ -222,7 +238,6 @@ const HomePage = () => {
 
       {filteredSessions.length === 0 ? (
         <Box sx={{ textAlign: 'center', mt: 5, p: 3, bgcolor: 'rgba(255,255,255,0.8)', borderRadius: 2 }}>
-          {/* CORRECTION TEXTE (Demandée précédemment) */}
           <Typography variant="h6" sx={{ color: '#555' }}>
             Aucune session trouvée, essayez d'autres filières.
           </Typography>
