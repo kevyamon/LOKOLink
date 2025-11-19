@@ -1,11 +1,11 @@
-// kevyamon/lokolink/LOKOLink-8d5e5c1ab5e3913ba58b31038ef761d12a0b44aa/src/pages/HomePage.jsx
+// src/pages/HomePage.jsx
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Typography,
   Container,
   Box,
-  CircularProgress, // Supprimé du rendu principal
+  CircularProgress,
   Alert,
   Grid,
   Card,
@@ -20,115 +20,74 @@ import { useNavigate } from 'react-router-dom';
 import { AdminPanelSettings } from '@mui/icons-material';
 import api from '../services/api';
 import socket from '../services/socket';
-// import { PageTransition } from '../components/PageTransition'; // <-- Déjà retiré
+import { PageTransition } from '../components/PageTransition';
 import AnimatedModal from '../components/AnimatedModal';
-import { useAuth } from '../contexts/AuthContext';
-import { useData } from '../contexts/DataContext'; 
+import { useAuth } from '../contexts/AuthContext'; // Pour vérifier si connecté
 
 const HomePage = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  const { sessions: initialSessions, setInitialSessions } = useData(); 
 
   // --- États ---
-  // On utilise l'état local pour les modifications en temps réel, 
-  // mais on l'initialise avec les données pré-chargées.
-  const [sessions, setSessions] = useState(initialSessions); 
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
   const [searchTerm, setSearchTerm] = useState('');
   
+  // États Modals Filleul
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
   
+  // États Modals Suppression (Long Press)
   const longPressTimer = useRef();
   const isLongPress = useRef(false);
   const [sessionToDelete, setSessionToDelete] = useState(null);
   const [confirmDeleteModal, setConfirmDeleteModal] = useState(false);
-  const [passwordModal, setPasswordModal] = useState(false);
+  const [passwordModal, setPasswordModal] = useState(false); // Sert pour Delete ET Access
   const [deleguePassword, setDeleguePassword] = useState('');
-  const [actionLoading, setActionLoading] = useState(false);
-  const [actionError, setActionError] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false); // Loading générique
+  const [actionError, setActionError] = useState(null); // Erreur générique
   const [snackbarMessage, setSnackbarMessage] = useState(null);
 
+  // État Modal Accès Délégué (Double Click)
   const [isAccessMode, setIsAccessMode] = useState(false); 
 
-  // --- Remplacer l'ancien fetch (qui n'est plus nécessaire) ---
+  // --- Chargement ---
   const fetchSessions = async () => {
     try {
-        // Cette fonction sera utilisée uniquement par le socket pour recharger
-        const { data } = await api.get('/api/sessions/active');
-        setSessions(data);
-        setInitialSessions(data); // On met à jour le contexte aussi
+      const { data } = await api.get('/api/sessions/active');
+      setSessions(Array.isArray(data) ? data : []);
     } catch (err) {
-        console.error('Erreur rechargement sessions:', err);
+      console.error('Erreur chargement sessions:', err);
+      setError('Impossible de charger les sessions.');
+      setSessions([]);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => { 
-    
-    // --- NOUVELLE LOGIQUE SOCKET : Mise à jour de l'état local ET du Contexte (pour synchronisation)
-    const handleSessionUpdate = (updatedSession) => {
-        if (updatedSession.isActive) {
-            setSessions(prev => {
-                const exists = prev.find(s => s._id === updatedSession._id);
-                // Si la session existe, on la met à jour. Sinon, on l'ajoute.
-                const newSessions = exists 
-                    ? prev.map(s => s._id === updatedSession._id ? updatedSession : s)
-                    : [updatedSession, ...prev]; 
-                
-                // On met à jour le contexte avec la nouvelle liste
-                setInitialSessions(newSessions);
-                return newSessions;
-            });
-        } else {
-            // Si inactive, on la filtre
-            setSessions(prev => {
-                const newSessions = prev.filter(s => s._id !== updatedSession._id);
-                // On met à jour le contexte avec la nouvelle liste
-                setInitialSessions(newSessions);
-                return newSessions;
-            });
-        }
-    };
-    
-    const handleSessionDeleted = (deletedId) => { 
+    fetchSessions(); 
+    socket.on('session:created', (newSession) => { if (newSession.isActive) setSessions(prev => [newSession, ...prev]); });
+    socket.on('session:updated', (updatedSession) => {
+      if (updatedSession.isActive) {
         setSessions(prev => {
-            const newSessions = prev.filter(s => s._id !== deletedId);
-            setInitialSessions(newSessions);
-            return newSessions;
+          const exists = prev.find(s => s._id === updatedSession._id);
+          if (exists) return prev.map(s => s._id === updatedSession._id ? updatedSession : s);
+          return [updatedSession, ...prev];
         });
-    };
-    
-    const handleSessionCreated = (newSession) => {
-        if (newSession.isActive) {
-            setSessions(prev => {
-                const newSessions = [newSession, ...prev];
-                setInitialSessions(newSessions);
-                return newSessions;
-            });
-        }
-    };
-    
-    socket.on('session:created', handleSessionCreated);
-    socket.on('session:updated', handleSessionUpdate);
-    socket.on('session:deleted', handleSessionDeleted);
-
+      } else {
+        setSessions(prev => prev.filter(s => s._id !== updatedSession._id));
+      }
+    });
+    socket.on('session:deleted', (deletedId) => { setSessions(prev => prev.filter(s => s._id !== deletedId)); });
     return () => {
-      socket.off('session:created', handleSessionCreated);
-      socket.off('session:updated', handleSessionUpdate);
-      socket.off('session:deleted', handleSessionDeleted);
+      socket.off('session:created');
+      socket.off('session:updated');
+      socket.off('session:deleted');
     };
-  }, [setInitialSessions]); 
-
-  // FIX RENDER LOOP CAUSE #321 : 
-  // Ce useEffect ne fait que synchroniser l'état local (sessions) avec le contexte (initialSessions)
-  // lorsque le contexte change (ce qui arrive au premier chargement dans App.jsx).
-  // La boucle infinie précédente est maintenant rompue car le setInitialSessions n'est plus ici
-  // mais dans la logique Socket juste au-dessus, et celle-ci est contrôlée.
-  useEffect(() => {
-    setSessions(initialSessions);
-  }, [initialSessions]);
+  }, []);
   
   const filteredSessions = useMemo(() => {
     if (!Array.isArray(sessions)) return [];
@@ -137,7 +96,9 @@ const HomePage = () => {
     );
   }, [sessions, searchTerm]);
   
-  // --- Handlers (inchangés) ---
+  // --- Handlers ---
+
+  // 1. Click Simple (Filleul)
   const handleCardClick = (session) => {
     if (isLongPress.current) {
       isLongPress.current = false;
@@ -146,23 +107,27 @@ const HomePage = () => {
     setSelectedSession(session);
     setModalOpen(true);
   };
-  
+
+  // 2. Double Click (Accès Délégué)
   const handleDoubleClick = (e, session) => {
-    e.stopPropagation(); 
-    if (!isAuthenticated) return; 
+    e.stopPropagation(); // Empêche le clic simple de se déclencher (si possible)
+    if (!isAuthenticated) return; // Si pas connecté, rien ne se passe (ou redirect login)
+    
     setSelectedSession(session);
-    setIsAccessMode(true); 
-    setPasswordModal(true); 
+    setIsAccessMode(true); // Mode "Accès" activé
+    setPasswordModal(true); // On ouvre le modal de mot de passe
     setDeleguePassword('');
     setActionError(null);
   };
   
+  // 3. Long Press (Suppression)
   const handleMouseDown = (session) => {
     isLongPress.current = false;
+    // DÉLAI RÉGLÉ À 3 SECONDES (3000ms)
     longPressTimer.current = setTimeout(() => {
       isLongPress.current = true;
       setSessionToDelete(session);
-      setConfirmDeleteModal(true);
+      setConfirmDeleteModal(true); // Demande confirmation d'abord
     }, 3000);
   };
   
@@ -170,6 +135,8 @@ const HomePage = () => {
     clearTimeout(longPressTimer.current);
   };
   
+  // --- Logique Modals ---
+
   const handleModalConfirmFilleul = () => {
     if (selectedSession) navigate(`/session/${selectedSession._id}`);
     setModalOpen(false);
@@ -177,8 +144,8 @@ const HomePage = () => {
 
   const handleConfirmDeleteStep1 = () => {
     setConfirmDeleteModal(false);
-    setIsAccessMode(false);
-    setPasswordModal(true);
+    setIsAccessMode(false); // Mode "Suppression"
+    setPasswordModal(true); // On demande le mot de passe
     setDeleguePassword('');
     setActionError(null);
   };
@@ -190,12 +157,16 @@ const HomePage = () => {
 
     try {
       if (isAccessMode) {
+        // --- CAS 1 : ACCÈS DASHBOARD ---
+        // On vérifie que le mot de passe est celui du créateur
         await api.post('/api/sessions/verify-password', {
           password: deleguePassword,
           sessionId: selectedSession._id
         });
+        // Si OK, on redirige
         navigate(`/delegue/dashboard/${selectedSession._id}`);
       } else {
+        // --- CAS 2 : SUPPRESSION SESSION ---
         await api.delete(`/api/sessions/${sessionToDelete._id}`, {
           data: { password: deleguePassword },
         });
@@ -210,129 +181,141 @@ const HomePage = () => {
   };
 
   // --- Rendu ---
+  if (loading) {
+    return (
+      <PageTransition>
+        <Container sx={{ textAlign: 'center', mt: 10 }}><CircularProgress /><Typography>Chargement...</Typography></Container>
+      </PageTransition>
+    );
+  }
 
   if (error) {
     return (
-      <Container maxWidth="md"><Alert severity="error">{error}</Alert></Container>
+      <PageTransition>
+        <Container maxWidth="md"><Alert severity="error">{error}</Alert></Container>
+      </PageTransition>
     );
   }
 
   return (
-    <Container maxWidth="lg">
-      <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ fontWeight: 'bold' }}>
-        Bienvenue sur LOKOlink
-      </Typography>
+    <PageTransition>
+      <Container maxWidth="lg">
+        <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ fontWeight: 'bold' }}>
+          Bienvenue sur LOKOlink
+        </Typography>
 
-      <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
-        <TextField
-          label="Rechercher une filière..."
-          variant="outlined"
-          sx={{
-            width: '80%', maxWidth: '600px',
-            '& .MuiOutlinedInput-root': { borderRadius: '50px', bgcolor: 'rgba(255,255,255,0.9)', border: 'none' }
-          }}
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-      </Box>
-
-      {filteredSessions.length === 0 ? (
-        <Box sx={{ textAlign: 'center', mt: 5, p: 3, bgcolor: 'rgba(255,255,255,0.8)', borderRadius: 2 }}>
-          <Typography variant="h6" sx={{ color: '#555' }}>
-            Aucune session trouvée, essayez d'autres filières.
-          </Typography>
-        </Box>
-      ) : (
-        <Grid container spacing={3}>
-          {filteredSessions.map((session) => (
-            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={session._id}>
-              <Card
-                sx={{
-                  height: '100%', borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                  transition: 'all 0.3s ease', '&:hover': { transform: 'scale(1.03)' }
-                }}
-              >
-                <CardActionArea
-                  onClick={() => handleCardClick(session)}
-                  onDoubleClick={(e) => handleDoubleClick(e, session)} 
-                  onMouseDown={() => handleMouseDown(session)}
-                  onMouseUp={handleMouseUp}
-                  onTouchStart={() => handleMouseDown(session)}
-                  onTouchEnd={handleMouseUp}
-                  onContextMenu={(e) => e.preventDefault()}
-                  sx={{ height: '100%' }}
-                >
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{session.sessionName}</Typography>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      )}
-
-      {/* MODALS (inchangés) */}
-      <AnimatedModal open={modalOpen} onClose={() => setModalOpen(false)}>
-        <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>{selectedSession?.sessionName}</Typography>
-        <Typography sx={{ mt: 2 }}>Est-ce bien votre filière ?</Typography>
-        <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
-          <Button variant="outlined" onClick={() => setModalOpen(false)}>Non</Button>
-          <Button variant="contained" onClick={handleModalConfirmFilleul}>Oui</Button>
-        </Stack>
-      </AnimatedModal>
-
-      <AnimatedModal open={confirmDeleteModal} onClose={() => setConfirmDeleteModal(false)}>
-        <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', color: 'error.main' }}>Désactiver la session ?</Typography>
-        <Typography sx={{ mt: 2 }}>Voulez-vous vraiment désactiver <strong>{sessionToDelete?.sessionName}</strong> ?</Typography>
-        <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
-          <Button variant="outlined" onClick={() => setConfirmDeleteModal(false)}>Non</Button>
-          <Button variant="contained" color="error" onClick={handleConfirmDeleteStep1}>Oui</Button>
-        </Stack>
-      </AnimatedModal>
-
-      <AnimatedModal open={passwordModal} onClose={() => setPasswordModal(false)}>
-        <Box component="form" onSubmit={handlePasswordSubmit}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            {isAccessMode ? <AdminPanelSettings color="primary" /> : null}
-            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-              {isAccessMode ? "Accès Délégué" : "Confirmation Requise"}
-            </Typography>
-          </Box>
-          
-          <Typography sx={{ mt: 1, mb: 2 }}>
-            {isAccessMode 
-              ? "Entrez votre mot de passe pour accéder au tableau de bord." 
-              : "Entrez le mot de passe Délégué pour confirmer la suppression."}
-          </Typography>
-          
+        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
           <TextField
-            type="password"
-            label="Mot de passe"
-            fullWidth
-            required
-            value={deleguePassword}
-            onChange={(e) => setDeleguePassword(e.target.value)}
-            disabled={actionLoading}
-            error={Boolean(actionError)}
-            helperText={actionError}
+            label="Rechercher une filière..."
+            variant="outlined"
+            sx={{
+              width: '80%', maxWidth: '600px',
+              '& .MuiOutlinedInput-root': { borderRadius: '50px', bgcolor: 'rgba(255,255,255,0.9)', border: 'none' }
+            }}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
-          
-          <Button
-            type="submit"
-            variant="contained"
-            color={isAccessMode ? "primary" : "error"}
-            fullWidth
-            disabled={actionLoading}
-            sx={{ mt: 3, py: 1.5, fontWeight: 'bold', borderRadius: '50px' }}
-          >
-            {actionLoading ? <CircularProgress size={24} color="inherit" /> : (isAccessMode ? "Accéder" : "Confirmer")}
-          </Button>
         </Box>
-      </AnimatedModal>
 
-      <Snackbar open={Boolean(snackbarMessage)} autoHideDuration={4000} onClose={() => setSnackbarMessage(null)} message={snackbarMessage} />
-    </Container>
+        {filteredSessions.length === 0 ? (
+          <Box sx={{ textAlign: 'center', mt: 5, p: 3, bgcolor: 'rgba(255,255,255,0.8)', borderRadius: 2 }}>
+            <Typography variant="h6">Aucune session active.</Typography>
+          </Box>
+        ) : (
+          <Grid container spacing={3}>
+            {filteredSessions.map((session) => (
+              // CORRECTION ICI : Remplacement de 'item' par 'size' pour MUI v6+
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={session._id}>
+                <Card
+                  sx={{
+                    height: '100%', borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                    transition: 'all 0.3s ease', '&:hover': { transform: 'scale(1.03)' }
+                  }}
+                >
+                  <CardActionArea
+                    onClick={() => handleCardClick(session)}
+                    onDoubleClick={(e) => handleDoubleClick(e, session)}
+                    onMouseDown={() => handleMouseDown(session)}
+                    onMouseUp={handleMouseUp}
+                    onTouchStart={() => handleMouseDown(session)}
+                    onTouchEnd={handleMouseUp}
+                    onContextMenu={(e) => e.preventDefault()}
+                    sx={{ height: '100%' }}
+                  >
+                    <CardContent sx={{ textAlign: 'center' }}>
+                      <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{session.sessionName}</Typography>
+                    </CardContent>
+                  </CardActionArea>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        )}
+
+        {/* MODAL 1: Confirmation Filleul (Simple Click) */}
+        <AnimatedModal open={modalOpen} onClose={() => setModalOpen(false)}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>{selectedSession?.sessionName}</Typography>
+          <Typography sx={{ mt: 2 }}>Est-ce bien votre filière ?</Typography>
+          <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+            <Button variant="outlined" onClick={() => setModalOpen(false)}>Non</Button>
+            <Button variant="contained" onClick={handleModalConfirmFilleul}>Oui</Button>
+          </Stack>
+        </AnimatedModal>
+
+        {/* MODAL 2: Confirmation Suppression (Long Press Step 1) */}
+        <AnimatedModal open={confirmDeleteModal} onClose={() => setConfirmDeleteModal(false)}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', color: 'error.main' }}>Désactiver la session ?</Typography>
+          <Typography sx={{ mt: 2 }}>Voulez-vous vraiment désactiver <strong>{sessionToDelete?.sessionName}</strong> ?</Typography>
+          <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+            <Button variant="outlined" onClick={() => setConfirmDeleteModal(false)}>Non</Button>
+            <Button variant="contained" color="error" onClick={handleConfirmDeleteStep1}>Oui</Button>
+          </Stack>
+        </AnimatedModal>
+
+        {/* MODAL 3: Mot de Passe (Commun pour Accès et Suppression) */}
+        <AnimatedModal open={passwordModal} onClose={() => setPasswordModal(false)}>
+          <Box component="form" onSubmit={handlePasswordSubmit}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              {isAccessMode ? <AdminPanelSettings color="primary" /> : null}
+              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                {isAccessMode ? "Accès Délégué" : "Confirmation Requise"}
+              </Typography>
+            </Box>
+            
+            <Typography sx={{ mt: 1, mb: 2 }}>
+              {isAccessMode 
+                ? "Entrez votre mot de passe pour accéder au tableau de bord." 
+                : "Entrez le mot de passe Délégué pour confirmer la suppression."}
+            </Typography>
+            
+            <TextField
+              type="password"
+              label="Mot de passe"
+              fullWidth
+              required
+              value={deleguePassword}
+              onChange={(e) => setDeleguePassword(e.target.value)}
+              disabled={actionLoading}
+              error={Boolean(actionError)}
+              helperText={actionError}
+            />
+            
+            <Button
+              type="submit"
+              variant="contained"
+              color={isAccessMode ? "primary" : "error"}
+              fullWidth
+              disabled={actionLoading}
+              sx={{ mt: 3, py: 1.5, fontWeight: 'bold', borderRadius: '50px' }}
+            >
+              {actionLoading ? <CircularProgress size={24} color="inherit" /> : (isAccessMode ? "Accéder" : "Confirmer")}
+            </Button>
+          </Box>
+        </AnimatedModal>
+
+        <Snackbar open={Boolean(snackbarMessage)} autoHideDuration={4000} onClose={() => setSnackbarMessage(null)} message={snackbarMessage} />
+      </Container>
+    </PageTransition>
   );
 };
 

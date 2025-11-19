@@ -1,18 +1,16 @@
-// kevyamon/lokolink/LOKOLink-8d5e5c1ab5e3913ba58b31038ef761d12a0b44aa/src/App.jsx
+// src/App.jsx
 
-import React, { useState, useEffect, Suspense, useRef, useCallback } from 'react';
+import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
-import { useData } from './contexts/DataContext';
 import api from './services/api'; 
 
-// --- COMPOSANTS ---
+// --- COMPOSANTS DE BASE ---
 import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
-import LoadingTimeout from './components/LoadingTimeout';
-import { PageTransition } from './components/PageTransition'; 
+import LoadingTimeout from './components/LoadingTimeout'; // <--- IMPORT AJOUTÉ
 
 // --- PAGES (Lazy Loading) ---
 const HomePage = React.lazy(() => import('./pages/HomePage'));
@@ -48,180 +46,141 @@ const AdminRoute = () => {
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [progress, setProgress] = useState(0);
-  const [isTimeoutError, setIsTimeoutError] = useState(false);
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  const [fixedAnimationTimerFinished, setFixedAnimationTimerFinished] = useState(false);
-  const [sessionsFetched, setSessionsFetched] = useState(false); 
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [backendReady, setBackendReady] = useState(false);
+  const [animationFinished, setAnimationFinished] = useState(false);
+  const [isTimeoutError, setIsTimeoutError] = useState(false); // <--- NOUVEL ÉTAT
   
-  const { setInitialSessions } = useData(); 
   const location = useLocation();
   const videoRef = useRef(null); 
 
-  // 1. ÉCOUTEUR DE RÉSEAU
+  // 1. GESTION VIDÉO
   useEffect(() => {
-    const handleOffline = () => setIsOffline(true);
-    const handleOnline = () => setIsOffline(false);
-
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener('online', handleOnline);
-
-    return () => {
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('online', handleOnline);
-    };
+    // La gestion est faite dans SplashScreen, ce hook sert de sécurité si besoin
   }, []);
 
-  // Utilisation de useCallback pour la fonction de ping/fetch - Elle prend maintenant les setters en dépendance
-  const checkServerAndFetchData = useCallback(async () => {
-      if (sessionsFetched) return; // NOUVEAU: Sortir si déjà réussi
-      
-      try {
-          const [pingRes, sessionsRes] = await Promise.all([
-              api.get('/'), 
-              api.get('/api/sessions/active'),
-          ]);
-          
-          setInitialSessions(sessionsRes.data); 
-          
-          // Mise à jour de l'état ici pour déclencher le useEffect de fermeture
-          setSessionsFetched(true); 
-          setProgress(99); 
-          
-          return true;
-      } catch (e) {
-          console.log("En attente ou erreur serveur/données...", e);
-          return false;
-      }
-  }, [setInitialSessions, sessionsFetched]); // Ajout de sessionsFetched comme dépendance pour éviter le double appel réussi
-
-  // 2. LOGIQUE DE CHARGEMENT & PING/FETCH
+  // 2. LOGIQUE DE CHARGEMENT & PING "PATIENT"
   useEffect(() => {
     let isMounted = true;
     let progressTimer;
     let pingInterval;
-    const MAX_WAIT_TIME = 60000; 
+    const MAX_WAIT_TIME = 60000; // 60 secondes max avant erreur
     const startTime = Date.now();
 
-    const minTimeTimeout = setTimeout(() => {
-        if (isMounted) setFixedAnimationTimerFinished(true);
-    }, 2500); 
-
+    // A. Barre de progression "Psychologique"
     progressTimer = setInterval(() => {
       setProgress((old) => {
-        if (old >= 99) return 99;
+        // On bloque à 90% tant que le backend n'est pas prêt
         if (old >= 90) return 90; 
-        
+        // Plus on avance, plus on ralentit pour ne pas atteindre 90 trop vite
         const diff = Math.random() * (old > 70 ? 2 : 10);
         return Math.min(old + diff, 90);
       });
     }, 200);
 
-    const initialFetch = async () => {
-        // Tente immédiatement de tout récupérer
-        const success = await checkServerAndFetchData();
-        
-        // Si l'initial a échoué (ou n'a pas pu se synchroniser correctement au premier rendu)
-        if (!success) { 
-            pingInterval = setInterval(async () => {
-                if (Date.now() - startTime > MAX_WAIT_TIME) {
-                    clearInterval(pingInterval);
-                    clearInterval(progressTimer);
-                    if (isMounted) setIsTimeoutError(true);
-                } else { 
-                    await checkServerAndFetchData();
-                }
-            }, 2000);
-        } else {
-            // Si l'initial a réussi, on s'assure que l'intervalle ne se lance pas.
-            // On compte sur le useEffect de fermeture pour faire le reste.
+    // B. Ping Serveur (La boucle de réveil)
+    const checkServer = async () => {
+        try {
+            console.log("Ping serveur...");
+            await api.get('/'); // Tente de joindre le backend
+            
+            if (isMounted) {
+                console.log("Serveur réveillé !");
+                setBackendReady(true); // VICTOIRE !
+                clearInterval(pingInterval);
+            }
+        } catch (e) {
+            console.log("Serveur dort encore (ou erreur réseau)... on attend.");
         }
     };
     
-    initialFetch();
+    // Premier essai immédiat
+    checkServer();
+    
+    // Puis on réessaie toutes les 2 secondes
+    pingInterval = setInterval(() => {
+        // Si on a dépassé le temps max (60s), on déclare le décès du serveur
+        if (Date.now() - startTime > MAX_WAIT_TIME) {
+            clearInterval(pingInterval);
+            clearInterval(progressTimer);
+            if (isMounted) setIsTimeoutError(true); // Affiche l'écran d'erreur
+        } else if (!backendReady) {
+            checkServer();
+        }
+    }, 2000);
 
-    // Nettoyage : On doit s'assurer que si sessionsFetched change, l'intervalle est aussi coupé.
     return () => {
       isMounted = false;
       clearInterval(progressTimer);
       clearInterval(pingInterval);
-      clearTimeout(minTimeTimeout);
     };
-  }, [checkServerAndFetchData]); 
-  // IMPORTANT: J'ai retiré 'sessionsFetched' de la liste des dépendances du useEffect principal
-  // pour éviter qu'il ne se relance entièrement après un succès, mais je l'ai laissé
-  // dans la dépendance de checkServerAndFetchData pour optimiser l'appel.
+  }, [backendReady]);
 
-  // 3. FERMETURE DU SPLASH
+  // 3. FERMETURE DU SPLASH (Uniquement quand TOUT est prêt)
   useEffect(() => {
-    // La condition de fermeture est: Sessions Fetchées ET Temps minimum passé
-    if (sessionsFetched && fixedAnimationTimerFinished) {
-      setProgress(100); 
+    if (backendReady && animationFinished) {
+      setProgress(100); // On force la barre à 100% pour le plaisir visuel
+      
+      // Petite pause de 0.5s pour voir le 100% vert (ou rouge)
       const t = setTimeout(() => {
-        setShowSplash(false); // FINI ! Le contenu est prêt derrière.
-        setIsInitialLoad(false); 
+        setShowSplash(false); 
       }, 500); 
       return () => clearTimeout(t);
     }
-  }, [sessionsFetched, fixedAnimationTimerFinished]);
+  }, [backendReady, animationFinished]);
 
-  const LazySpinnerWrapper = <LazySpinner />;
-
-  const RouteWrapper = ({ element }) => {
-    if (isInitialLoad && location.pathname === '/') {
-        return element; 
-    }
-    return <PageTransition>{element}</PageTransition>;
+  const onVideoEnd = () => {
+    setAnimationFinished(true);
   };
-  
-  if (isOffline || isTimeoutError) return <LoadingTimeout />;
 
-  if (showSplash) {
-    return (
-      <AnimatePresence>
-         {showSplash && (
-            <SplashScreen progress={progress} />
-         )}
-      </AnimatePresence>
-    );
+  // CAS D'ERREUR FATALE (Serveur HS après 60s)
+  if (isTimeoutError) {
+      return <LoadingTimeout />;
   }
-  
-  // Si le splash a disparu mais que les Lazy Imports n'ont pas fini, on montre le spinner générique
-  const fallbackComponent = (location.pathname === '/' && !isInitialLoad) ? null : LazySpinnerWrapper;
 
   return (
-    <Box sx={{ height: '100vh', overflow: 'auto' }}>
-      <AnimatePresence mode="wait">
-        <Suspense fallback={fallbackComponent}> 
-          <Routes location={location} key={location.pathname}>
-            <Route path="/" element={<Layout />}>
-              
-              <Route index element={<RouteWrapper element={<HomePage />} />} />
-              <Route path="session/:id" element={<RouteWrapper element={<SessionPage />} />} />
-              <Route path="rejoindre/:code" element={<RouteWrapper element={<JoinSessionPage />} />} />
-              <Route path="rejoindre" element={<RouteWrapper element={<JoinSessionPage />} />} />
-              <Route path="login" element={<RouteWrapper element={<LoginPage />} />} />
-              <Route path="register" element={<RouteWrapper element={<RegisterPage />} />} />
-              <Route path="register-eternal" element={<RouteWrapper element={<EternalRegisterPage />} />} />
-              
-              <Route element={<ProtectedRoute />}>
-                <Route path="delegue/creer" element={<RouteWrapper element={<SessionCreatePage />} />} />
-                <Route path="delegue/sessions" element={<RouteWrapper element={<DelegateSessionsPage />} />} />
-                <Route path="delegue/dashboard/:id" element={<RouteWrapper element={<DelegateDashboardPage />} />} />
-              </Route>
-              
-              <Route element={<AdminRoute />}>
-                <Route path="superadmin/dashboard" element={<RouteWrapper element={<SuperAdminDashboardPage />} />} />
-              </Route>
-              
-              <Route path="*" element={<RouteWrapper element={<NotFoundPage />} />} />
-              <Route path="delegue/login" element={<Navigate to="/login" replace />} />
-              <Route path="superadmin/login" element={<Navigate to="/login" replace />} />
-            </Route>
-          </Routes>
-        </Suspense>
+    <>
+      <AnimatePresence>
+        {showSplash && (
+           <SplashScreen 
+             progress={progress} 
+             onVideoEnd={onVideoEnd} 
+           />
+        )}
       </AnimatePresence>
-    </Box>
+
+      {/* Le site est là, caché, mais ne s'affichera que quand le splash partira */}
+      <Box sx={{ 
+          height: '100vh', 
+          overflow: showSplash ? 'hidden' : 'auto' 
+      }}>
+        <AnimatePresence mode="wait">
+          <Suspense fallback={null}> 
+            <Routes location={location} key={location.pathname}>
+              <Route path="/" element={<Layout />}>
+                <Route index element={<HomePage />} />
+                <Route path="session/:id" element={<SessionPage />} />
+                <Route path="rejoindre/:code" element={<JoinSessionPage />} />
+                <Route path="rejoindre" element={<JoinSessionPage />} />
+                <Route path="login" element={<LoginPage />} />
+                <Route path="register" element={<RegisterPage />} />
+                <Route path="register-eternal" element={<EternalRegisterPage />} />
+                <Route element={<ProtectedRoute />}>
+                  <Route path="delegue/creer" element={<SessionCreatePage />} />
+                  <Route path="delegue/sessions" element={<DelegateSessionsPage />} />
+                  <Route path="delegue/dashboard/:id" element={<DelegateDashboardPage />} />
+                </Route>
+                <Route element={<AdminRoute />}>
+                  <Route path="superadmin/dashboard" element={<SuperAdminDashboardPage />} />
+                </Route>
+                <Route path="*" element={<NotFoundPage />} />
+                <Route path="delegue/login" element={<Navigate to="/login" replace />} />
+                <Route path="superadmin/login" element={<Navigate to="/login" replace />} />
+              </Route>
+            </Routes>
+          </Suspense>
+        </AnimatePresence>
+      </Box>
+    </>
   );
 }
 
