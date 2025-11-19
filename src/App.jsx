@@ -5,6 +5,7 @@ import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
+import { useData } from './contexts/DataContext'; // Import Context
 import api from './services/api'; 
 
 // --- COMPOSANTS DE BASE ---
@@ -25,7 +26,7 @@ const DelegateDashboardPage = React.lazy(() => import('./pages/DelegateDashboard
 const DelegateSessionsPage = React.lazy(() => import('./pages/DelegateSessionsPage'));
 const SuperAdminDashboardPage = React.lazy(() => import('./pages/SuperAdminDashboardPage'));
 
-// On garde le spinner lazy par sécurité, mais il ne devrait pas apparaître grâce au splash
+// Loader simple pour le lazy loading (invisible si splash est là)
 const LazySpinner = () => (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
     <CircularProgress sx={{ color: '#d32f2f' }} />
@@ -45,23 +46,15 @@ const AdminRoute = () => {
 };
 
 function App() {
+  const { isHomeReady, markFirstLoadComplete } = useData(); // On écoute l'état global
   const [showSplash, setShowSplash] = useState(true);
   const [progress, setProgress] = useState(0);
   const [backendReady, setBackendReady] = useState(false);
-  const [minTimeElapsed, setMinTimeElapsed] = useState(false); // Nouvelle logique temporelle
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   
   const location = useLocation();
 
-  // 1. LOGIQUE DE TEMPS MINIMUM (2.5 secondes)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setMinTimeElapsed(true);
-    }, 2500); // Temps minimum d'affichage du Splash
-    return () => clearTimeout(timer);
-  }, []);
-
-  // 2. PING SERVEUR & PROGRESSION
+  // 1. PING SERVEUR & PROGRESSION
   useEffect(() => {
     let isMounted = true;
     let progressTimer;
@@ -69,37 +62,27 @@ function App() {
     const MAX_WAIT_TIME = 60000; // 60s max
     const startTime = Date.now();
 
-    // A. Barre de progression "Psychologique"
+    // A. Barre de progression "Psychologique" (Monte jusqu'à 90%)
     progressTimer = setInterval(() => {
       setProgress((old) => {
-        // Si tout est prêt, on laisse le useEffect de fermeture gérer le 100%
-        if (backendReady && minTimeElapsed) return old;
-        
-        // Sinon on bloque à 90% tant que ce n'est pas prêt
         if (old >= 90) return 90; 
-        
-        // Avancée aléatoire
         const diff = Math.random() * 4;
         return Math.min(old + diff, 90);
       });
     }, 200);
 
-    // B. Ping Serveur (Réveil Backend)
+    // B. Ping Serveur
     const checkServer = async () => {
         try {
-            await api.get('/'); // Ping simple
+            await api.get('/');
             if (isMounted) {
                 console.log("Serveur connecté.");
                 setBackendReady(true);
                 clearInterval(pingInterval);
             }
-        } catch (e) {
-            // On attend silencieusement
-        }
+        } catch (e) {}
     };
-    
-    checkServer(); // Premier essai
-    
+    checkServer();
     pingInterval = setInterval(() => {
         if (Date.now() - startTime > MAX_WAIT_TIME) {
             clearInterval(pingInterval);
@@ -108,87 +91,80 @@ function App() {
         } else if (!backendReady) {
             checkServer();
         }
-    }, 2000); // Réessaie toutes les 2s
+    }, 2000);
 
     return () => {
       isMounted = false;
       clearInterval(progressTimer);
       clearInterval(pingInterval);
     };
-  }, [backendReady, minTimeElapsed]);
+  }, [backendReady]);
 
-  // 3. FERMETURE ET TRANSITION DU SPLASH
+  // 2. ORCHESTRATION FINALE
   useEffect(() => {
-    // CONDITION ULTIME : Backend prêt ET Temps minimum écoulé
-    if (backendReady && minTimeElapsed) {
-      setProgress(100); // On complète la barre
+    // CONDITIONS: Serveur OK + HomePage prête (Cartes chargées)
+    if (backendReady && isHomeReady) {
+      console.log("Tout est prêt. Attente de 2 secondes...");
       
-      // Petite pause (500ms) pour voir la barre verte complète avant de couper
+      // On remplit la barre
+      setProgress(100);
+
+      // On attend 2 secondes EXACTEMENT comme demandé
       const t = setTimeout(() => {
-        setShowSplash(false); 
-      }, 500); 
+        setShowSplash(false);
+        markFirstLoadComplete(); // On dit au contexte que c'est fini (réactive le wipe pour la suite)
+      }, 2000);
+      
       return () => clearTimeout(t);
     }
-  }, [backendReady, minTimeElapsed]);
+  }, [backendReady, isHomeReady]);
 
-  // CAS D'ERREUR FATALE
-  if (isTimeoutError) {
-      return <LoadingTimeout />;
-  }
+  if (isTimeoutError) return <LoadingTimeout />;
 
   return (
     <>
+      {/* SPLASH SCREEN (Z-index 9999) */}
       <AnimatePresence>
-        {showSplash && (
-           <SplashScreen progress={progress} />
-        )}
+        {showSplash && <SplashScreen progress={progress} />}
       </AnimatePresence>
 
-      {/* CONTENU DU SITE */}
+      {/* LE SITE (Chargé en background).
+        On enlève la condition !showSplash pour qu'il se charge TOUT DE SUITE.
+        Le splash le cache grâce au z-index.
+      */}
       <Box sx={{ 
           height: '100vh', 
+          // On bloque le scroll tant que le splash est là
           overflow: showSplash ? 'hidden' : 'auto',
-          // Tant que le splash est là, on peut masquer le scrollbar
+          // Petite astuce : si splash est là, on rend le site transparent ou caché pour éviter les glitches visuels 
+          // MAIS on veut qu'il charge. Opacity 1 est ok car z-index splash est plus haut.
       }}>
-        {/* On ne rend le contenu que si le backend est prêt ou presque,
-            pour éviter que React Router ne charge des pages vides en arrière-plan trop tôt.
-            Cependant, Suspense gère ça.
-        */}
-        {!showSplash && (
-          <AnimatePresence mode="wait">
-            <Suspense fallback={<LazySpinner />}> 
-              <Routes location={location} key={location.pathname}>
-                <Route path="/" element={<Layout />}>
-                  <Route index element={<HomePage />} />
-                  <Route path="session/:id" element={<SessionPage />} />
-                  <Route path="rejoindre/:code" element={<JoinSessionPage />} />
-                  <Route path="rejoindre" element={<JoinSessionPage />} />
-                  <Route path="login" element={<LoginPage />} />
-                  <Route path="register" element={<RegisterPage />} />
-                  <Route path="register-eternal" element={<EternalRegisterPage />} />
-                  <Route element={<ProtectedRoute />}>
-                    <Route path="delegue/creer" element={<SessionCreatePage />} />
-                    <Route path="delegue/sessions" element={<DelegateSessionsPage />} />
-                    <Route path="delegue/dashboard/:id" element={<DelegateDashboardPage />} />
-                  </Route>
-                  <Route element={<AdminRoute />}>
-                    <Route path="superadmin/dashboard" element={<SuperAdminDashboardPage />} />
-                  </Route>
-                  <Route path="*" element={<NotFoundPage />} />
-                  <Route path="delegue/login" element={<Navigate to="/login" replace />} />
-                  <Route path="superadmin/login" element={<Navigate to="/login" replace />} />
+        <AnimatePresence mode="wait">
+          <Suspense fallback={<LazySpinner />}> 
+            <Routes location={location} key={location.pathname}>
+              <Route path="/" element={<Layout />}>
+                <Route index element={<HomePage />} />
+                <Route path="session/:id" element={<SessionPage />} />
+                <Route path="rejoindre/:code" element={<JoinSessionPage />} />
+                <Route path="rejoindre" element={<JoinSessionPage />} />
+                <Route path="login" element={<LoginPage />} />
+                <Route path="register" element={<RegisterPage />} />
+                <Route path="register-eternal" element={<EternalRegisterPage />} />
+                <Route element={<ProtectedRoute />}>
+                  <Route path="delegue/creer" element={<SessionCreatePage />} />
+                  <Route path="delegue/sessions" element={<DelegateSessionsPage />} />
+                  <Route path="delegue/dashboard/:id" element={<DelegateDashboardPage />} />
                 </Route>
-              </Routes>
-            </Suspense>
-          </AnimatePresence>
-        )}
-        
-        {/* NOTE IMPORTANTE : 
-           J'ai mis le contenu dans `!showSplash` pour garantir le "ZÉRO Loader".
-           Tant que le splash est là, rien d'autre n'est rendu.
-           Dès que `showSplash` passe à false, le site apparaît.
-           Si tu veux précharger le site en arrière-plan, enlève la condition `!showSplash &&`.
-        */}
+                <Route element={<AdminRoute />}>
+                  <Route path="superadmin/dashboard" element={<SuperAdminDashboardPage />} />
+                </Route>
+                <Route path="*" element={<NotFoundPage />} />
+                <Route path="delegue/login" element={<Navigate to="/login" replace />} />
+                <Route path="superadmin/login" element={<Navigate to="/login" replace />} />
+              </Route>
+            </Routes>
+          </Suspense>
+        </AnimatePresence>
       </Box>
     </>
   );

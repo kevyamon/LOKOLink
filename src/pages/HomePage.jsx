@@ -23,10 +23,12 @@ import socket from '../services/socket';
 import { PageTransition } from '../components/PageTransition';
 import AnimatedModal from '../components/AnimatedModal';
 import { useAuth } from '../contexts/AuthContext'; // Pour vérifier si connecté
+import { useData } from '../contexts/DataContext'; // <--- NOUVEAU : Import du contexte de données
 
 const HomePage = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { markHomeAsReady, isFirstLoad } = useData(); // <--- NOUVEAU : Récupération des fonctions du contexte
 
   // --- États ---
   const [sessions, setSessions] = useState([]);
@@ -64,6 +66,8 @@ const HomePage = () => {
       setSessions([]);
     } finally {
       setLoading(false);
+      // <--- NOUVEAU : On signale que les données sont prêtes
+      markHomeAsReady();
     }
   };
 
@@ -182,6 +186,13 @@ const HomePage = () => {
 
   // --- Rendu ---
   if (loading) {
+    // <--- NOUVEAU : Si c'est le premier chargement (sous le splash), on ne rend RIEN visuellement
+    // Le splash screen est au-dessus, donc l'utilisateur ne voit pas le blanc.
+    // Dès que loading passe à false, markHomeAsReady a été appelé, le splash disparaît, et la grille est là.
+    if (isFirstLoad) {
+      return null; 
+    }
+    
     return (
       <PageTransition>
         <Container sx={{ textAlign: 'center', mt: 10 }}><CircularProgress /><Typography>Chargement...</Typography></Container>
@@ -224,8 +235,8 @@ const HomePage = () => {
         ) : (
           <Grid container spacing={3}>
             {filteredSessions.map((session) => (
-              // CORRECTION ICI : Remplacement de 'item' par 'size' pour MUI v6+
-              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={session._id}>
+              // Note: Si tu utilises MUI v6, remplace 'item' par 'size' comme vu précédemment, sinon garde 'item'
+              <Grid item xs={12} sm={6} md={4} key={session._id}>
                 <Card
                   sx={{
                     height: '100%', borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
