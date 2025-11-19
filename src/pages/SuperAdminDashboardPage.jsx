@@ -30,7 +30,8 @@ import {
   useTheme,
   Grid,
   Card,
-  CardContent
+  CardContent,
+  ListSubheader
 } from '@mui/material';
 import {
   Edit,
@@ -47,7 +48,8 @@ import {
   Refresh,
   Search,
   Dns,
-  SupervisedUserCircle
+  SupervisedUserCircle,
+  History
 } from '@mui/icons-material';
 import api from '../services/api';
 import socket from '../services/socket';
@@ -70,7 +72,7 @@ function TabPanel(props) {
   );
 }
 
-// --- COMPOSANT KPI CARD (Indicateurs Clés) ---
+// --- COMPOSANT KPI CARD ---
 const KpiCard = ({ title, value, icon, color }) => (
   <Card sx={{ borderRadius: '20px', boxShadow: 3, height: '100%', position: 'relative', overflow: 'hidden' }}>
     <Box sx={{ 
@@ -113,18 +115,21 @@ const SuperAdminDashboardPage = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   
-  // État Recherche (Amélioration 2)
   const [searchTerm, setSearchTerm] = useState('');
   
   // États Feedback visuel
   const [copiedCode, setCopiedCode] = useState(null);
   const [copiedSessionCode, setCopiedSessionCode] = useState(null);
 
-  // États Modals Session
+  // États Modals
   const [sessionToDelete, setSessionToDelete] = useState(null);
   const [sessionToEdit, setSessionToEdit] = useState(null);
   const [sponsorToEdit, setSponsorToEdit] = useState(null);
   const [sponsorData, setSponsorData] = useState({ name: '', phone: '' });
+  
+  // NOUVEAU : État pour le modal de suppression de code
+  const [codeToDelete, setCodeToDelete] = useState(null);
+
   const [loadingAction, setLoadingAction] = useState(false);
 
   // État Modal Création Session
@@ -135,10 +140,9 @@ const SuperAdminDashboardPage = () => {
     sponsorsList: '',
   });
 
-  // État Génération Code
   const [newCodeRole, setNewCodeRole] = useState('delegue');
 
-  // --- CHARGEMENT DES DONNÉES ---
+  // --- CHARGEMENT ---
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -161,8 +165,6 @@ const SuperAdminDashboardPage = () => {
 
   useEffect(() => {
     fetchAllData();
-
-    // Écouteurs Socket
     socket.on('session:created', (newSession) => setSessions((prev) => [newSession, ...prev]));
     socket.on('session:updated', (updatedSession) => {
       setSessions((prev) => prev.map((s) => (s._id === updatedSession._id ? updatedSession : s)));
@@ -181,8 +183,7 @@ const SuperAdminDashboardPage = () => {
     };
   }, [fetchAllData]);
 
-  // --- FILTRAGE INTELLIGENT (Recherche + Masquage Eternal) ---
-  
+  // --- FILTRAGE ---
   const filteredSessions = useMemo(() => {
     return sessions.filter(s => 
       s.sessionName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -192,7 +193,7 @@ const SuperAdminDashboardPage = () => {
 
   const filteredUsers = useMemo(() => {
     return users
-      .filter(u => u.role !== 'eternal') // MISSION 2 : On cache Eternal
+      .filter(u => u.role !== 'eternal')
       .filter(u => u.email.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [users, searchTerm]);
 
@@ -200,7 +201,10 @@ const SuperAdminDashboardPage = () => {
     return codes.filter(c => c.code.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [codes, searchTerm]);
 
-  // KPIs calculés
+  // Séparation Actifs / Archivés
+  const activeCodes = filteredCodes.filter(c => !c.isUsed);
+  const usedCodes = filteredCodes.filter(c => c.isUsed);
+
   const stats = {
     activeSessions: sessions.filter(s => s.isActive).length,
     totalUsers: users.filter(u => u.role !== 'eternal').length,
@@ -209,11 +213,7 @@ const SuperAdminDashboardPage = () => {
 
   // --- HANDLERS ---
   const handleToggleSessionStatus = async (session) => {
-    try {
-      await api.patch(`/api/admin/sessions/${session._id}/toggle-status`);
-    } catch (err) {
-      setError("Erreur lors du changement de statut.");
-    }
+    try { await api.patch(`/api/admin/sessions/${session._id}/toggle-status`); } catch (err) { setError("Erreur lors du changement de statut."); }
   };
 
   const handleCreateSessionSubmit = async (e) => {
@@ -225,11 +225,7 @@ const SuperAdminDashboardPage = () => {
       setSuccess(`Session "${newSessionData.sessionName}" créée !`);
       setCreateSessionModalOpen(false);
       setNewSessionData({ sessionName: '', sessionCode: '', sponsorsList: '' });
-    } catch (err) {
-      setError(err.response?.data?.message || "Erreur création.");
-    } finally {
-      setLoadingAction(false);
-    }
+    } catch (err) { setError(err.response?.data?.message || "Erreur création."); } finally { setLoadingAction(false); }
   };
 
   const handleDeleteSession = async () => {
@@ -238,11 +234,7 @@ const SuperAdminDashboardPage = () => {
     try {
       await api.delete(`/api/admin/sessions/${sessionToDelete._id}`);
       setSessionToDelete(null);
-    } catch (err) {
-      setError('Erreur suppression session.');
-    } finally {
-      setLoadingAction(false);
-    }
+    } catch (err) { setError('Erreur suppression session.'); } finally { setLoadingAction(false); }
   };
 
   const handleUpdateSponsor = async (e) => {
@@ -250,10 +242,7 @@ const SuperAdminDashboardPage = () => {
     if (!sponsorToEdit || !sessionToEdit) return;
     setLoadingAction(true);
     try {
-      await api.put(
-        `/api/admin/sessions/${sessionToEdit._id}/sponsors/${sponsorToEdit._id}`,
-        sponsorData
-      );
+      await api.put(`/api/admin/sessions/${sessionToEdit._id}/sponsors/${sponsorToEdit._id}`, sponsorData);
       setSponsorToEdit(null);
     } catch (err) { console.error(err); } finally { setLoadingAction(false); }
   };
@@ -267,9 +256,18 @@ const SuperAdminDashboardPage = () => {
     } catch (err) { setError(err.response?.data?.message || 'Erreur.'); } finally { setLoadingAction(false); }
   };
 
-  const handleDeleteCode = async (codeId) => {
-    if(window.confirm("Supprimer ce code ?")) {
-      try { await api.delete(`/api/admin/codes/${codeId}`); } catch (err) { setError("Erreur suppression."); }
+  // NOUVEAU HANDLER DE SUPPRESSION CODE
+  const handleDeleteCodeConfirm = async () => {
+    if (!codeToDelete) return;
+    setLoadingAction(true);
+    try {
+      await api.delete(`/api/admin/codes/${codeToDelete._id}`);
+      setCodeToDelete(null);
+      setSuccess("Code supprimé.");
+    } catch (err) {
+      setError("Erreur suppression.");
+    } finally {
+      setLoadingAction(false);
     }
   };
 
@@ -279,12 +277,8 @@ const SuperAdminDashboardPage = () => {
     else { setCopiedSessionCode(text); setTimeout(() => setCopiedSessionCode(null), 2000); }
   };
 
-  // STYLE POUR LE SCROLL (Mission 1)
   const scrollableContainerSx = {
-    maxHeight: '60vh', // Hauteur fixe qui force le scroll
-    overflowY: 'auto', // Scroll vertical automatique
-    pr: 1, // Padding pour éviter que la scrollbar colle
-    // Custom Scrollbar (pour Chrome/Safari)
+    maxHeight: '60vh', overflowY: 'auto', pr: 1,
     '&::-webkit-scrollbar': { width: '6px' },
     '&::-webkit-scrollbar-track': { background: '#f1f1f1', borderRadius: '10px' },
     '&::-webkit-scrollbar-thumb': { background: '#ccc', borderRadius: '10px' },
@@ -300,7 +294,7 @@ const SuperAdminDashboardPage = () => {
     <PageTransition>
       <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 2 }, pb: 5 }}>
         
-        {/* EN-TÊTE + BOUTON REFRESH (Amélioration 3) */}
+        {/* EN-TÊTE */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, mt: 2 }}>
            <Box>
              <Typography variant="h4" component="h1" fontWeight="900" sx={{ fontSize: { xs: '1.5rem', md: '2.5rem' } }}>
@@ -309,21 +303,10 @@ const SuperAdminDashboardPage = () => {
             <Typography variant="body2" color="text.secondary">Super-Admin Control Center</Typography>
            </Box>
            <Stack direction="row" spacing={1}>
-             <Button 
-               variant="contained" 
-               color="inherit"
-               onClick={fetchAllData} 
-               sx={{ minWidth: 'auto', p: 1, borderRadius: '50%', bgcolor: 'white', color: 'primary.main', boxShadow: 2 }}
-             >
+             <Button variant="contained" color="inherit" onClick={fetchAllData} sx={{ minWidth: 'auto', p: 1, borderRadius: '50%', bgcolor: 'white', color: 'primary.main', boxShadow: 2 }}>
                <Refresh />
              </Button>
-             <Button 
-              variant="contained" 
-              color="primary" 
-              startIcon={<AddCircle />}
-              onClick={() => setCreateSessionModalOpen(true)}
-              sx={{ borderRadius: '50px', fontWeight: 'bold', display: { xs: 'none', sm: 'flex' }, px: 3 }}
-            >
+             <Button variant="contained" color="primary" startIcon={<AddCircle />} onClick={() => setCreateSessionModalOpen(true)} sx={{ borderRadius: '50px', fontWeight: 'bold', display: { xs: 'none', sm: 'flex' }, px: 3 }}>
               Session
             </Button>
            </Stack>
@@ -333,171 +316,75 @@ const SuperAdminDashboardPage = () => {
         {error && <Alert severity="error" onClose={() => setError(null)} sx={{ borderRadius: '16px', mb: 2 }}>{error}</Alert>}
         {success && <Alert severity="success" onClose={() => setSuccess(null)} sx={{ borderRadius: '16px', mb: 2 }}>{success}</Alert>}
 
-        {/* 1. INDICATEURS CLÉS (Amélioration 1) */}
+        {/* KPIs */}
         <Grid container spacing={2} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={4}>
-            <KpiCard title="Sessions Actives" value={stats.activeSessions} icon={<Dns />} color="#1976d2" />
-          </Grid>
-          <Grid item xs={6} sm={4}>
-            <KpiCard title="Utilisateurs" value={stats.totalUsers} icon={<SupervisedUserCircle />} color="#2e7d32" />
-          </Grid>
-          <Grid item xs={6} sm={4}>
-            <KpiCard title="Codes Dispo" value={stats.availableCodes} icon={<VpnKey />} color="#ed6c02" />
-          </Grid>
+          <Grid item xs={12} sm={4}><KpiCard title="Sessions Actives" value={stats.activeSessions} icon={<Dns />} color="#1976d2" /></Grid>
+          <Grid item xs={6} sm={4}><KpiCard title="Utilisateurs" value={stats.totalUsers} icon={<SupervisedUserCircle />} color="#2e7d32" /></Grid>
+          <Grid item xs={6} sm={4}><KpiCard title="Codes Dispo" value={stats.availableCodes} icon={<VpnKey />} color="#ed6c02" /></Grid>
         </Grid>
 
-        {/* 2. BARRE DE RECHERCHE UNIFIÉE (Amélioration 2) */}
+        {/* RECHERCHE */}
         <TextField
-          fullWidth
-          placeholder="Rechercher une session, un email, un code..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          InputProps={{
-            startAdornment: <InputAdornment position="start"><Search color="action" /></InputAdornment>,
-          }}
-          sx={{ 
-            mb: 3, 
-            bgcolor: 'white', 
-            borderRadius: '16px',
-            '& .MuiOutlinedInput-root': { borderRadius: '16px' },
-            boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
-          }}
+          fullWidth placeholder="Rechercher une session, un email, un code..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+          InputProps={{ startAdornment: <InputAdornment position="start"><Search color="action" /></InputAdornment> }}
+          sx={{ mb: 3, bgcolor: 'white', borderRadius: '16px', '& .MuiOutlinedInput-root': { borderRadius: '16px' }, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
         />
 
-        {/* ZONES À ONGLETS */}
+        {/* ONGLETS */}
         <Paper sx={{ borderRadius: '20px', overflow: 'hidden', bgcolor: 'rgba(255, 255, 255, 0.95)', boxShadow: 4 }}>
-          <Tabs 
-            value={tabValue} 
-            onChange={(e, v) => setTabValue(v)} 
-            indicatorColor="primary" 
-            textColor="primary" 
-            variant="fullWidth"
-            sx={{ borderBottom: 1, borderColor: 'divider' }}
-          >
+          <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)} indicatorColor="primary" textColor="primary" variant="fullWidth" sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tab label={`Sessions (${filteredSessions.length})`} />
             <Tab label={`Comptes (${filteredUsers.length})`} />
             <Tab label={`Codes (${filteredCodes.length})`} />
           </Tabs>
 
-          {/* --- TAB SESSIONS --- */}
+          {/* TAB SESSIONS */}
           <TabPanel value={tabValue} index={0}>
-            {/* Zone Scrollable */}
             <Box sx={scrollableContainerSx}>
               <Stack spacing={2}>
                 {filteredSessions.map((session) => (
-                  <Paper 
-                    key={session._id} 
-                    elevation={2} 
-                    sx={{ 
-                      p: 2, 
-                      borderRadius: '16px',
-                      borderLeft: `6px solid ${session.isActive ? '#4caf50' : '#bdbdbd'}`,
-                      bgcolor: '#fff'
-                    }}
-                  >
+                  <Paper key={session._id} elevation={2} sx={{ p: 2, borderRadius: '16px', borderLeft: `6px solid ${session.isActive ? '#4caf50' : '#bdbdbd'}`, bgcolor: '#fff' }}>
                     <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
-                      <Typography variant="h6" fontWeight="bold" sx={{ lineHeight: 1.2, mr: 1 }}>
-                        {session.sessionName}
-                      </Typography>
+                      <Typography variant="h6" fontWeight="bold" sx={{ lineHeight: 1.2, mr: 1 }}>{session.sessionName}</Typography>
                       <Box display="flex" flexDirection="column" alignItems="flex-end">
-                        <Switch 
-                          checked={session.isActive} 
-                          onChange={() => handleToggleSessionStatus(session)} 
-                          color="success" 
-                          size="small"
-                        />
-                        <Typography variant="caption" color={session.isActive ? "success.main" : "text.disabled"} fontWeight="bold">
-                          {session.isActive ? "ACTIVE" : "OFF"}
-                        </Typography>
+                        <Switch checked={session.isActive} onChange={() => handleToggleSessionStatus(session)} color="success" size="small" />
+                        <Typography variant="caption" color={session.isActive ? "success.main" : "text.disabled"} fontWeight="bold">{session.isActive ? "ACTIVE" : "OFF"}</Typography>
                       </Box>
                     </Box>
-
                     <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center" mb={2}>
-                      <Chip 
-                        icon={<Lock fontSize="small"/>} 
-                        label={session.sessionCode} 
-                        size="small" 
-                        onClick={() => copyToClipboard(session.sessionCode, 'session')}
-                        deleteIcon={copiedSessionCode === session.sessionCode ? <Check /> : <CopyAll />}
-                        onDelete={() => copyToClipboard(session.sessionCode, 'session')}
-                        color={copiedSessionCode === session.sessionCode ? "success" : "default"}
-                        sx={{ mb: 1 }}
-                      />
-                      <Chip 
-                        icon={<People fontSize="small"/>} 
-                        label={`${session.sponsors.length} parrains`} 
-                        size="small" 
-                        variant="outlined" 
-                        sx={{ mb: 1 }}
-                      />
+                      <Chip icon={<Lock fontSize="small"/>} label={session.sessionCode} size="small" onClick={() => copyToClipboard(session.sessionCode, 'session')} deleteIcon={copiedSessionCode === session.sessionCode ? <Check /> : <CopyAll />} onDelete={() => copyToClipboard(session.sessionCode, 'session')} color={copiedSessionCode === session.sessionCode ? "success" : "default"} sx={{ mb: 1 }} />
+                      <Chip icon={<People fontSize="small"/>} label={`${session.sponsors.length} parrains`} size="small" variant="outlined" sx={{ mb: 1 }} />
                     </Stack>
-
-                    <Typography variant="body2" color="text.secondary" display="flex" alignItems="center" mb={2}>
-                      <Email fontSize="small" sx={{ mr: 0.5, opacity: 0.7 }} /> 
-                      {session.createdBy?.email || 'Inconnu'}
-                    </Typography>
-
+                    <Typography variant="body2" color="text.secondary" display="flex" alignItems="center" mb={2}><Email fontSize="small" sx={{ mr: 0.5, opacity: 0.7 }} /> {session.createdBy?.email || 'Inconnu'}</Typography>
                     <Divider sx={{ mb: 1 }} />
                     <Box display="flex" justifyContent="flex-end" gap={1}>
-                      <Button 
-                        size="small" 
-                        startIcon={<Edit />} 
-                        onClick={() => setSessionToEdit(session)}
-                        variant="outlined"
-                        sx={{ borderRadius: '20px' }}
-                      >
-                        Gérer
-                      </Button>
-                      <Button 
-                        size="small" 
-                        startIcon={<DeleteForever />} 
-                        onClick={() => setSessionToDelete(session)}
-                        color="error"
-                        variant="contained"
-                        sx={{ borderRadius: '20px' }}
-                      >
-                        Supprimer
-                      </Button>
+                      <Button size="small" startIcon={<Edit />} onClick={() => setSessionToEdit(session)} variant="outlined" sx={{ borderRadius: '20px' }}>Gérer</Button>
+                      <Button size="small" startIcon={<DeleteForever />} onClick={() => setSessionToDelete(session)} color="error" variant="contained" sx={{ borderRadius: '20px' }}>Supprimer</Button>
                     </Box>
                   </Paper>
                 ))}
-                {filteredSessions.length === 0 && (
-                  <Typography align="center" color="text.secondary" py={4}>Aucune session trouvée.</Typography>
-                )}
+                {filteredSessions.length === 0 && <Typography align="center" color="text.secondary" py={4}>Aucune session trouvée.</Typography>}
               </Stack>
             </Box>
           </TabPanel>
 
-          {/* --- TAB UTILISATEURS --- */}
+          {/* TAB UTILISATEURS */}
           <TabPanel value={tabValue} index={1}>
-            {/* Zone Scrollable */}
             <Box sx={scrollableContainerSx}>
               <List>
                 {filteredUsers.map((user) => (
                   <ListItem key={user._id} divider>
                     <ListItemIcon><Person color="primary" /></ListItemIcon>
-                    <ListItemText
-                      primary={user.email}
-                      secondary={
-                        <React.Fragment>
-                          <Typography component="span" variant="body2" color="text.primary" fontWeight="bold">
-                            {user.role.toUpperCase()}
-                          </Typography>
-                          {` — Expire: ${user.accountExpiresAt ? new Date(user.accountExpiresAt).toLocaleDateString() : 'Jamais'}`}
-                        </React.Fragment>
-                      }
-                    />
+                    <ListItemText primary={user.email} secondary={<React.Fragment><Typography component="span" variant="body2" color="text.primary" fontWeight="bold">{user.role.toUpperCase()}</Typography>{` — Expire: ${user.accountExpiresAt ? new Date(user.accountExpiresAt).toLocaleDateString() : 'Jamais'}`}</React.Fragment>} />
                     <Chip label={user.isActive ? 'Actif' : 'Inactif'} color={user.isActive ? 'success' : 'default'} size="small" />
                   </ListItem>
                 ))}
-                {filteredUsers.length === 0 && (
-                  <Typography align="center" color="text.secondary" py={4}>Aucun utilisateur trouvé (Eternal est masqué).</Typography>
-                )}
+                {filteredUsers.length === 0 && <Typography align="center" color="text.secondary" py={4}>Aucun utilisateur trouvé.</Typography>}
               </List>
             </Box>
           </TabPanel>
 
-          {/* --- TAB CODES --- */}
+          {/* TAB CODES - ORGANISATION "ARCHIVES" */}
           <TabPanel value={tabValue} index={2}>
             <Box component="form" onSubmit={handleGenerateCode} sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3, p: 2, border: '1px dashed grey', borderRadius: '16px' }}>
               <Typography variant="subtitle2" fontWeight="bold">Générer un nouveau code</Typography>
@@ -509,38 +396,70 @@ const SuperAdminDashboardPage = () => {
                     <MenuItem value="superadmin">Super-Admin</MenuItem>
                   </Select>
                 </FormControl>
-                <Button type="submit" variant="contained" disabled={loadingAction} startIcon={<AddCircle />}>
-                  Créer
-                </Button>
+                <Button type="submit" variant="contained" disabled={loadingAction} startIcon={<AddCircle />}>Créer</Button>
               </Box>
             </Box>
             
-            {/* Zone Scrollable */}
             <Box sx={scrollableContainerSx}>
-              <List>
-                {filteredCodes.map((code) => (
+              <List subheader={<ListSubheader sx={{bgcolor: 'transparent'}}>Codes Actifs</ListSubheader>}>
+                {activeCodes.map((code) => (
                   <ListItem key={code._id} divider>
-                    <ListItemIcon><VpnKey color={code.isUsed ? 'disabled' : 'success'} /></ListItemIcon>
-                    <ListItemText
-                      primary={code.code}
-                      secondary={code.isUsed ? "Utilisé" : `Pour: ${code.role.toUpperCase()}`}
-                      sx={{ textDecoration: code.isUsed ? 'line-through' : 'none', color: code.isUsed ? 'text.disabled' : 'text.primary' }}
-                    />
-                    <Button size="small" onClick={() => copyToClipboard(code.code, 'invite')} disabled={code.isUsed}>
+                    <ListItemIcon><VpnKey color="success" /></ListItemIcon>
+                    <ListItemText primary={code.code} secondary={`Pour: ${code.role.toUpperCase()}`} />
+                    <Button size="small" onClick={() => copyToClipboard(code.code, 'invite')}>
                       {copiedCode === code.code ? 'Copié' : 'Copier'}
                     </Button>
-                    {!code.isUsed && <IconButton onClick={() => handleDeleteCode(code._id)} color="error"><DeleteForever /></IconButton>}
+                    <IconButton onClick={() => setCodeToDelete(code)} color="error"><DeleteForever /></IconButton>
                   </ListItem>
                 ))}
-                {filteredCodes.length === 0 && (
-                  <Typography align="center" color="text.secondary" py={4}>Aucun code trouvé.</Typography>
-                )}
+                {activeCodes.length === 0 && <Typography variant="body2" color="text.secondary" sx={{px:2, fontStyle: 'italic'}}>Aucun code actif.</Typography>}
               </List>
+
+              {/* SECTION ARCHIVES */}
+              {usedCodes.length > 0 && (
+                <>
+                  <Divider sx={{ my: 2 }} />
+                  <List subheader={<ListSubheader sx={{bgcolor: 'transparent', display:'flex', alignItems:'center', gap:1}}><History fontSize="small"/> Archives (Déjà utilisés)</ListSubheader>}>
+                    {usedCodes.map((code) => (
+                      <ListItem key={code._id} divider sx={{ opacity: 0.6 }}>
+                        <ListItemIcon><VpnKey color="disabled" /></ListItemIcon>
+                        <ListItemText 
+                          primary={code.code} 
+                          secondary="Utilisé" 
+                          sx={{ textDecoration: 'line-through' }}
+                        />
+                        {/* On peut maintenant supprimer les archives */}
+                        <IconButton onClick={() => setCodeToDelete(code)} color="default" size="small">
+                            <DeleteForever fontSize="small"/>
+                        </IconButton>
+                      </ListItem>
+                    ))}
+                  </List>
+                </>
+              )}
             </Box>
           </TabPanel>
         </Paper>
 
-        {/* MODALS (Création, Suppression, Edition) */}
+        {/* --- MODALS --- */}
+
+        {/* Modal Suppression Code (Nouveau) */}
+        <AnimatedModal open={Boolean(codeToDelete)} onClose={() => setCodeToDelete(null)}>
+            <Typography variant="h6" gutterBottom color="error" fontWeight="bold">Supprimer ce code ?</Typography>
+            <Typography variant="body1" sx={{ mb: 3 }}>
+                {codeToDelete?.isUsed 
+                    ? "Ce code a déjà été utilisé (Archive). Voulez-vous le nettoyer ?" 
+                    : "Attention, ce code est encore valide. Le supprimer empêchera son utilisation."}
+            </Typography>
+            <Stack direction="row" spacing={2} justifyContent="flex-end">
+                <Button onClick={() => setCodeToDelete(null)}>Annuler</Button>
+                <Button variant="contained" color="error" onClick={handleDeleteCodeConfirm} disabled={loadingAction}>
+                    {loadingAction ? <CircularProgress size={20} color="inherit" /> : "Supprimer"}
+                </Button>
+            </Stack>
+        </AnimatedModal>
+
+        {/* Autres Modals (Création Session, Suppression Session, Edit Session, Edit Sponsor) ...inchangés... */}
         <AnimatedModal open={createSessionModalOpen} onClose={() => setCreateSessionModalOpen(false)} maxWidth="md">
           <Typography variant="h5" align="center" fontWeight="bold" mb={3}>Nouvelle Session</Typography>
           <Box component="form" onSubmit={handleCreateSessionSubmit}>
