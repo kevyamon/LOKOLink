@@ -19,8 +19,8 @@ import {
   Chip,
   Card,
   CardContent,
-  CardActionArea,
-  Divider // <--- LE COUPABLE EST LÀ (Ajouté)
+  CardActionArea, // INDISPENSABLE : Pour les boutons de choix Homme/Femme
+  Divider         // INDISPENSABLE : Pour la ligne de séparation dans le résultat (évite l'écran noir)
 } from '@mui/material';
 import { 
   Lock, 
@@ -29,7 +29,7 @@ import {
   Person, 
   EmojiEvents, 
   Verified, 
-  People 
+  People // INDISPENSABLE : Pour l'icône "Duo"
 } from '@mui/icons-material'; 
 import { useParams, useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
@@ -38,13 +38,14 @@ import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
 import AnimatedModal from '../components/AnimatedModal';
+import { useData } from '../contexts/DataContext'; 
 
-// --- Styles Gélule (Input) Améliorés ---
+// --- Styles Gélule (Input) Améliorés pour Visibilité ---
 const pillTextFieldSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: '50px',
-    backgroundColor: '#f5f5f5', // Gris très léger pour le contraste
-    border: '1px solid #e0e0e0', // Bordure fine pour la visibilité
+    backgroundColor: '#f5f5f5', // Fond légèrement gris pour le contraste
+    border: '1px solid #e0e0e0', // Bordure explicite
     boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.03)',
     transition: 'all 0.3s ease',
     '&:hover': {
@@ -54,25 +55,30 @@ const pillTextFieldSx = {
     '&.Mui-focused': {
       backgroundColor: '#fff',
       boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-    },
-    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-      border: '2px solid',
       borderColor: 'primary.main',
     },
-    '& .MuiOutlinedInput-notchedOutline': { border: 'none' }, // On cache la bordure par défaut de MUI
+    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+      border: '2px solid', // Bordure plus épaisse au focus
+      borderColor: 'primary.main',
+    },
+    '& .MuiOutlinedInput-notchedOutline': { border: 'none' }, // On cache la bordure par défaut MUI pour utiliser la nôtre
   },
   '& .MuiInputLabel-root': {
-    fontWeight: '500', // Label plus gras
+    fontWeight: '500', // Label plus lisible
+    color: '#666',
+  },
+  '& .MuiInputBase-input': {
+    fontWeight: '500', // Texte saisi plus lisible
   }
 };
 
-// --- Styles Bouton Standard ---
+// --- Styles Bouton ---
 const pillButtonSx = (color = 'primary') => ({
   fontWeight: 'bold',
   borderRadius: '50px',
-  padding: '14px 0', // Un peu plus haut
-  fontSize: '1.1rem', // Texte plus gros
-  textTransform: 'none', // Pas de MAJUSCULES forcées, plus lisible
+  padding: '14px 0',
+  fontSize: '1.1rem',
+  textTransform: 'none', // Plus convivial
   backgroundColor: color === 'primary' ? '#1976d2' : '#2E7D32',
   boxShadow: `0 6px 14px rgba(${color === 'primary' ? '25, 118, 210' : '46, 125, 50'}, 0.3)`,
   transition: 'all 0.3s ease-in-out',
@@ -101,6 +107,7 @@ const SessionPage = () => {
   const { id: sessionID } = useParams();
   const navigate = useNavigate();
   const { width, height } = useWindowSize();
+  const { markHomeAsReady } = useData(); 
 
   // --- États ---
   const [godchildName, setGodchildName] = useState('');
@@ -130,6 +137,8 @@ const SessionPage = () => {
         const message = err.response?.data?.message || "Cette session n'est plus disponible.";
         setError(message);
         setIsCriticalError(true); 
+      } finally {
+        markHomeAsReady(); // Débloque le splash si accès direct
       }
     };
     fetchSessionDetails();
@@ -182,7 +191,7 @@ const SessionPage = () => {
         sessionCode,
       });
 
-      await new Promise(r => setTimeout(r, 500)); // Petit délai UX
+      await new Promise(r => setTimeout(r, 500));
 
       setLoading(false);
       setPairingResult({
@@ -209,7 +218,7 @@ const SessionPage = () => {
     setError(null);
   };
 
-  // --- RENDU CRITIQUE ---
+  // --- RENDU VUE CRITIQUE ---
   if (isCriticalError) {
     return (
       <PageTransition>
@@ -292,6 +301,7 @@ const SessionPage = () => {
                   position: 'relative',
                   textAlign: 'center'
                 }}>
+                  
                   <Box sx={{ 
                     height: '120px', 
                     background: 'linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%)', 
@@ -410,14 +420,14 @@ const SessionPage = () => {
                 {sessionName}
               </Typography>
               {/* TEXTE MODIFIÉ ICI */}
-              <Typography variant="subtitle1" color="text.secondary">
+              <Typography variant="subtitle1" color="text.secondary" sx={{ fontWeight: '500' }}>
                 Ton Parrain t'attend avec impatience !
               </Typography>
           </Box>
 
           <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
             <TextField
-              label="Entrez votre nom complet"
+              label="Ton nom complet"
               fullWidth
               required
               value={godchildName}
@@ -453,6 +463,7 @@ const SessionPage = () => {
                 onChange={(e) => setGodchildGender(e.target.value)}
                 sx={{ justifyContent: 'space-between', gap: 2 }}
               >
+                {/* Gros Boutons Radio "Carte" */}
                 <CardActionArea 
                   sx={{ 
                     borderRadius: '16px', 
@@ -466,9 +477,9 @@ const SessionPage = () => {
                 >
                     <FormControlLabel 
                       value="Homme" 
-                      control={<Radio sx={{ '& .MuiSvgIcon-root': { fontSize: 28 } }} />} // Radio plus gros
+                      control={<Radio sx={{ '& .MuiSvgIcon-root': { fontSize: 28 } }} />} 
                       label="Un Homme" 
-                      sx={{ m: 0, width: '100%', justifyContent: 'center' }} 
+                      sx={{ m: 0, width: '100%', justifyContent: 'center', '& .MuiFormControlLabel-label': { fontWeight: 'bold' } }} 
                     />
                 </CardActionArea>
 
@@ -485,9 +496,9 @@ const SessionPage = () => {
                 >
                     <FormControlLabel 
                       value="Femme" 
-                      control={<Radio color="secondary" sx={{ '& .MuiSvgIcon-root': { fontSize: 28 } }} />} // Radio plus gros
+                      control={<Radio color="secondary" sx={{ '& .MuiSvgIcon-root': { fontSize: 28 } }} />} 
                       label="Une Femme" 
-                      sx={{ m: 0, width: '100%', justifyContent: 'center' }} 
+                      sx={{ m: 0, width: '100%', justifyContent: 'center', '& .MuiFormControlLabel-label': { fontWeight: 'bold' } }} 
                     />
                 </CardActionArea>
               </RadioGroup>

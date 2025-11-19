@@ -1,6 +1,6 @@
 // src/pages/LoginPage.jsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Typography,
   Box,
@@ -15,6 +15,7 @@ import {
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useData } from '../contexts/DataContext'; // <--- IMPORT
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
@@ -25,9 +26,7 @@ const pillTextFieldSx = {
     borderRadius: '50px',
     backgroundColor: '#f9f9f9',
     boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)',
-    '& .MuiOutlinedInput-notchedOutline': {
-      border: 'none',
-    },
+    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
       border: '2px solid',
       borderColor: 'primary.main',
@@ -53,38 +52,34 @@ const pillButtonSx = (color = 'primary') => ({
 const LoginPage = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
+  const { markHomeAsReady } = useData(); // <--- IMPORT
 
-  // États du formulaire
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Handlers pour l'icône œil
-  const handleClickShowPassword = () => setShowPassword((show) => !show);
-  const handleMouseDownPassword = (event) => {
-    event.preventDefault();
-  };
+  // SIGNAL DE DÉBLOCAGE DU SPLASH
+  useEffect(() => {
+    markHomeAsReady();
+  }, []);
 
-  // Gestion de la soumission du formulaire
+  const handleClickShowPassword = () => setShowPassword((show) => !show);
+  const handleMouseDownPassword = (event) => event.preventDefault();
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      // 1. Appel API
       const { data } = await api.post('/api/auth/login', { email, password });
-
-      // 2. Connexion dans le contexte
-      login(data); // data = { _id, email, role, token }
-
+      login(data); 
       setLoading(false);
       
-      // 3. REDIRECTION (C'est ici qu'on a modifié)
       if (data.role === 'delegue') {
-        navigate('/delegue/sessions'); // <--- On va vers la liste des sessions
+        navigate('/delegue/sessions'); 
       } else if (data.role === 'superadmin' || data.role === 'eternal') {
         navigate('/superadmin/dashboard');
       } else {
@@ -108,11 +103,9 @@ const LoginPage = () => {
         </Typography>
 
         <Box component="form" onSubmit={handleSubmit}>
-          {/* Email */}
           <TextField
             type="email"
             label="Email"
-            variant="outlined"
             fullWidth
             required
             value={email}
@@ -121,11 +114,9 @@ const LoginPage = () => {
             sx={{ ...pillTextFieldSx, mb: 2 }}
           />
           
-          {/* Mot de passe */}
           <TextField
             type={showPassword ? 'text' : 'password'}
             label="Mot de passe"
-            variant="outlined"
             fullWidth
             required
             value={password}
@@ -135,12 +126,7 @@ const LoginPage = () => {
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end" sx={{ mr: 1 }}>
-                  <IconButton
-                    aria-label="afficher/masquer le mot de passe"
-                    onClick={handleClickShowPassword}
-                    onMouseDown={handleMouseDownPassword}
-                    edge="end"
-                  >
+                  <IconButton onClick={handleClickShowPassword} onMouseDown={handleMouseDownPassword} edge="end">
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
                 </InputAdornment>
@@ -149,11 +135,7 @@ const LoginPage = () => {
             sx={pillTextFieldSx}
           />
 
-          {error && (
-            <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>
-              {error}
-            </Alert>
-          )}
+          {error && <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>{error}</Alert>}
 
           <Button
             type="submit"

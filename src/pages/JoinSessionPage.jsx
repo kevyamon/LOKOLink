@@ -8,26 +8,49 @@ import {
   Button,
   CircularProgress,
   Alert,
-  Card,
-  CardContent,
+  InputAdornment,
+  Avatar
 } from '@mui/material';
 import { useParams, useNavigate } from 'react-router-dom';
-import { HowToReg, WhatsApp } from '@mui/icons-material';
+import { HowToReg, WhatsApp, Lock, Person, Handshake } from '@mui/icons-material';
 import api from '../services/api';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
+import { useData } from '../contexts/DataContext'; // <--- IMPORT CRUCIAL
 
+// --- Styles Gélule ---
 const pillTextFieldSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: '50px',
     backgroundColor: '#f9f9f9',
+    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)',
     '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+      border: '2px solid',
+      borderColor: 'primary.main',
+    },
   },
 };
 
+const pillButtonSx = (color = 'primary') => ({
+  fontWeight: 'bold',
+  borderRadius: '50px',
+  padding: '14px 0',
+  fontSize: '1.1rem',
+  backgroundColor: color === 'primary' ? '#1976d2' : '#2E7D32',
+  boxShadow: `0 4px 12px rgba(${color === 'primary' ? '25, 118, 210' : '46, 125, 50'}, 0.4)`,
+  transition: 'all 0.3s ease-in-out',
+  '&:hover': {
+    backgroundColor: color === 'primary' ? '#1565c0' : '#388E3C',
+    transform: 'translateY(-2px)',
+    boxShadow: `0 6px 16px rgba(${color === 'primary' ? '25, 118, 210' : '46, 125, 50'}, 0.5)`,
+  },
+});
+
 const JoinSessionPage = () => {
-  const { code } = useParams(); // On récupère le code depuis l'URL (ex: /rejoindre/LOKO-123)
+  const { code } = useParams();
   const navigate = useNavigate();
+  const { markHomeAsReady } = useData(); // <--- Récupération du signal
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -37,6 +60,11 @@ const JoinSessionPage = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [sessionName, setSessionName] = useState('');
+
+  // 1. SIGNAL "JE SUIS PRÊT" (Débloque le Splash)
+  useEffect(() => {
+    markHomeAsReady();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -67,29 +95,30 @@ const JoinSessionPage = () => {
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Box sx={{ 
               bgcolor: '#e8f5e9', 
-              width: 80, height: 80, 
+              width: 100, height: 100, 
               borderRadius: '50%', 
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              mx: 'auto', mb: 2 
+              mx: 'auto', mb: 3,
+              boxShadow: '0 10px 30px rgba(46, 125, 50, 0.2)'
             }}>
-              <HowToReg sx={{ fontSize: 40, color: '#2e7d32' }} />
+              <Handshake sx={{ fontSize: 60, color: '#2e7d32' }} />
             </Box>
-            <Typography variant="h4" fontWeight="bold" gutterBottom color="success.main">
+            <Typography variant="h4" fontWeight="900" gutterBottom color="success.main">
               Félicitations !
             </Typography>
-            <Typography variant="h6" paragraph>
-              Vous êtes officiellement Parrain/Marraine pour la session :
+            <Typography variant="h6" paragraph sx={{ fontWeight: 'bold', color: 'text.primary' }}>
+              Tu es officiellement Parrain pour :
             </Typography>
-            <Typography variant="h5" fontWeight="bold" color="primary" gutterBottom>
+            <Typography variant="h5" fontWeight="bold" color="primary" gutterBottom sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
               {sessionName}
             </Typography>
-            <Typography variant="body1" color="text.secondary" sx={{ mt: 2 }}>
-              Merci pour votre engagement. Le délégué a reçu votre inscription en temps réel.
+            <Typography variant="body1" color="text.secondary" sx={{ mt: 2, mb: 4 }}>
+              Merci pour ton engagement. Les étudiants pourront bientôt te découvrir !
             </Typography>
             <Button 
               variant="outlined" 
-              sx={{ mt: 4, borderRadius: '50px' }}
               onClick={() => navigate('/')}
+              sx={{ borderRadius: '50px', px: 4, py: 1, fontWeight: 'bold' }}
             >
               Retour à l'accueil
             </Button>
@@ -102,35 +131,43 @@ const JoinSessionPage = () => {
   return (
     <PageTransition>
       <FormContainer maxWidth="sm">
-        <Box sx={{ textAlign: 'center', mb: 3 }}>
-          <Typography variant="h4" component="h1" fontWeight="bold">
+        <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <Avatar sx={{ mx: 'auto', mb: 2, bgcolor: 'primary.main', width: 60, height: 60, boxShadow: '0 4px 10px rgba(25, 118, 210, 0.3)' }}>
+             <HowToReg fontSize="large" />
+          </Avatar>
+          <Typography variant="h4" component="h1" fontWeight="900" gutterBottom>
             Devenir Parrain 🤝
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Rejoignez l'aventure et aidez les nouveaux étudiants.
+            Rejoins l'aventure et guide les nouveaux étudiants.
           </Typography>
         </Box>
 
         <Box component="form" onSubmit={handleSubmit}>
-           {/* Champ Code LOKO (Pré-rempli si lien, mais modifiable au cas où) */}
            <TextField
             label="Code de la Session"
             fullWidth
             required
             value={sessionCode}
             onChange={(e) => setSessionCode(e.target.value)}
-            disabled={loading || !!code} // Désactivé si passé dans l'URL pour éviter les erreurs
-            sx={{ ...pillTextFieldSx, mb: 2 }}
+            disabled={loading || !!code} 
+            sx={{ ...pillTextFieldSx, mb: 3 }}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><Lock color="action" /></InputAdornment>,
+            }}
           />
 
           <TextField
-            label="Votre Nom Complet"
+            label="Ton Nom Complet"
             fullWidth
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={loading}
-            sx={{ ...pillTextFieldSx, mb: 2 }}
+            sx={{ ...pillTextFieldSx, mb: 3 }}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><Person color="action" /></InputAdornment>,
+            }}
           />
 
           <TextField
@@ -141,13 +178,14 @@ const JoinSessionPage = () => {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             disabled={loading}
-            sx={{ ...pillTextFieldSx, mb: 3 }}
+            sx={{ ...pillTextFieldSx, mb: 4 }}
+            helperText="Pour que ton filleul puisse te contacter."
             InputProps={{
-              startAdornment: <WhatsApp sx={{ color: 'text.secondary', mr: 1 }} />,
+              startAdornment: <InputAdornment position="start"><WhatsApp sx={{ color: '#25D366' }} /></InputAdornment>,
             }}
           />
 
-          {error && <Alert severity="error" sx={{ mb: 2, borderRadius: '16px' }}>{error}</Alert>}
+          {error && <Alert severity="error" sx={{ mb: 3, borderRadius: '16px' }}>{error}</Alert>}
 
           <Button
             type="submit"
@@ -155,13 +193,7 @@ const JoinSessionPage = () => {
             fullWidth
             size="large"
             disabled={loading}
-            sx={{ 
-              py: 1.5, 
-              fontSize: '1.1rem', 
-              fontWeight: 'bold',
-              borderRadius: '50px',
-              boxShadow: '0 4px 14px rgba(25, 118, 210, 0.4)'
-            }}
+            sx={{ ...pillButtonSx('primary') }}
           >
             {loading ? <CircularProgress size={24} color="inherit" /> : "Je m'inscris !"}
           </Button>
