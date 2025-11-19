@@ -48,7 +48,6 @@ const AdminRoute = () => {
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [progress, setProgress] = useState(0);
-  // RETIRÉ: [backendReady, setBackendReady] = useState(false);
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [fixedAnimationTimerFinished, setFixedAnimationTimerFinished] = useState(false);
@@ -73,25 +72,28 @@ function App() {
     };
   }, []);
 
-  // Utilisation de useCallback pour la fonction de ping/fetch
+  // Utilisation de useCallback pour la fonction de ping/fetch - Elle prend maintenant les setters en dépendance
   const checkServerAndFetchData = useCallback(async () => {
+      if (sessionsFetched) return; // NOUVEAU: Sortir si déjà réussi
+      
       try {
-          // On ping le serveur pour le réveiller ET on récupère les données critiques en une fois
           const [pingRes, sessionsRes] = await Promise.all([
               api.get('/'), 
               api.get('/api/sessions/active'),
           ]);
           
-          // Si le ping et les sessions sont OK
-          setInitialSessions(sessionsRes.data); // Stocker dans le contexte
-          setSessionsFetched(true); // Signaler que les données sont là
-          setProgress(99); // Avancer la barre à 99%
+          setInitialSessions(sessionsRes.data); 
+          
+          // Mise à jour de l'état ici pour déclencher le useEffect de fermeture
+          setSessionsFetched(true); 
+          setProgress(99); 
+          
           return true;
       } catch (e) {
           console.log("En attente ou erreur serveur/données...", e);
           return false;
       }
-  }, [setInitialSessions]);
+  }, [setInitialSessions, sessionsFetched]); // Ajout de sessionsFetched comme dépendance pour éviter le double appel réussi
 
   // 2. LOGIQUE DE CHARGEMENT & PING/FETCH
   useEffect(() => {
@@ -107,7 +109,6 @@ function App() {
 
     progressTimer = setInterval(() => {
       setProgress((old) => {
-        // ON BLOQUE À 90% (Backend réveillé) ET AUSSI À 99% (Données récupérées)
         if (old >= 99) return 99;
         if (old >= 90) return 90; 
         
@@ -118,31 +119,38 @@ function App() {
 
     const initialFetch = async () => {
         // Tente immédiatement de tout récupérer
-        await checkServerAndFetchData();
+        const success = await checkServerAndFetchData();
         
-        // Si les sessions ne sont pas encore fetchées, on commence l'intervalle de ping
-        if (!sessionsFetched) { 
+        // Si l'initial a échoué (ou n'a pas pu se synchroniser correctement au premier rendu)
+        if (!success) { 
             pingInterval = setInterval(async () => {
                 if (Date.now() - startTime > MAX_WAIT_TIME) {
                     clearInterval(pingInterval);
                     clearInterval(progressTimer);
                     if (isMounted) setIsTimeoutError(true);
-                } else if (!sessionsFetched) { 
+                } else { 
                     await checkServerAndFetchData();
                 }
             }, 2000);
+        } else {
+            // Si l'initial a réussi, on s'assure que l'intervalle ne se lance pas.
+            // On compte sur le useEffect de fermeture pour faire le reste.
         }
     };
     
     initialFetch();
 
+    // Nettoyage : On doit s'assurer que si sessionsFetched change, l'intervalle est aussi coupé.
     return () => {
       isMounted = false;
       clearInterval(progressTimer);
       clearInterval(pingInterval);
       clearTimeout(minTimeTimeout);
     };
-  }, [checkServerAndFetchData, sessionsFetched]); // Ajout de sessionsFetched et checkServerAndFetchData comme dépendances
+  }, [checkServerAndFetchData]); 
+  // IMPORTANT: J'ai retiré 'sessionsFetched' de la liste des dépendances du useEffect principal
+  // pour éviter qu'il ne se relance entièrement après un succès, mais je l'ai laissé
+  // dans la dépendance de checkServerAndFetchData pour optimiser l'appel.
 
   // 3. FERMETURE DU SPLASH
   useEffect(() => {
@@ -160,7 +168,6 @@ function App() {
   const LazySpinnerWrapper = <LazySpinner />;
 
   const RouteWrapper = ({ element }) => {
-    // Si c'est la page d'accueil ET le premier chargement, on ne met PAS la PageTransition.
     if (isInitialLoad && location.pathname === '/') {
         return element; 
     }
@@ -189,7 +196,6 @@ function App() {
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={<Layout />}>
               
-              {/* Utilisation conditionnelle de RouteWrapper */}
               <Route index element={<RouteWrapper element={<HomePage />} />} />
               <Route path="session/:id" element={<RouteWrapper element={<SessionPage />} />} />
               <Route path="rejoindre/:code" element={<RouteWrapper element={<JoinSessionPage />} />} />
