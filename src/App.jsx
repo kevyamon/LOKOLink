@@ -1,6 +1,6 @@
 // kevyamon/lokolink/LOKOLink-8d5e5c1ab5e3913ba58b31038ef761d12a0b44aa/src/App.jsx
 
-import React, { useState, useEffect, Suspense, useRef } from 'react';
+import React, { useState, useEffect, Suspense, useRef, useCallback } from 'react';
 import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Box, CircularProgress } from '@mui/material';
@@ -12,7 +12,7 @@ import api from './services/api';
 import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
 import LoadingTimeout from './components/LoadingTimeout';
-import { PageTransition } from './components/PageTransition'; // Import pour usage conditionnel
+import { PageTransition } from './components/PageTransition'; 
 
 // --- PAGES (Lazy Loading) ---
 const HomePage = React.lazy(() => import('./pages/HomePage'));
@@ -48,12 +48,11 @@ const AdminRoute = () => {
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [progress, setProgress] = useState(0);
-  const [backendReady, setBackendReady] = useState(false);
+  // RETIRÉ: [backendReady, setBackendReady] = useState(false);
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [fixedAnimationTimerFinished, setFixedAnimationTimerFinished] = useState(false);
   const [sessionsFetched, setSessionsFetched] = useState(false); 
-  // NOUVEL ÉTAT : Pour gérer l'animation de transition de la première page
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   
   const { setInitialSessions } = useData(); 
@@ -74,7 +73,27 @@ function App() {
     };
   }, []);
 
-  // 2. LOGIQUE DE CHARGEMENT & PING
+  // Utilisation de useCallback pour la fonction de ping/fetch
+  const checkServerAndFetchData = useCallback(async () => {
+      try {
+          // On ping le serveur pour le réveiller ET on récupère les données critiques en une fois
+          const [pingRes, sessionsRes] = await Promise.all([
+              api.get('/'), 
+              api.get('/api/sessions/active'),
+          ]);
+          
+          // Si le ping et les sessions sont OK
+          setInitialSessions(sessionsRes.data); // Stocker dans le contexte
+          setSessionsFetched(true); // Signaler que les données sont là
+          setProgress(99); // Avancer la barre à 99%
+          return true;
+      } catch (e) {
+          console.log("En attente ou erreur serveur/données...", e);
+          return false;
+      }
+  }, [setInitialSessions]);
+
+  // 2. LOGIQUE DE CHARGEMENT & PING/FETCH
   useEffect(() => {
     let isMounted = true;
     let progressTimer;
@@ -97,36 +116,25 @@ function App() {
       });
     }, 200);
 
-    // NOUVELLE FONCTION : Ping + Récupération des données critiques
-    const checkServerAndFetchData = async () => {
-        try {
-            await api.get('/'); // 1. Ping Serveur (wake up Render)
-            setBackendReady(true);
-            
-            const { data } = await api.get('/api/sessions/active'); // 2. Récupérer les données critiques
-            
-            if (isMounted) {
-                setInitialSessions(data); // Stocker dans le contexte
-                setSessionsFetched(true); // Signaler que les données sont là
-                setProgress(99); // Avancer la barre à 99%
-                clearInterval(pingInterval);
-            }
-        } catch (e) {
-            console.log("En attente ou erreur serveur/données...", e);
+    const initialFetch = async () => {
+        // Tente immédiatement de tout récupérer
+        await checkServerAndFetchData();
+        
+        // Si les sessions ne sont pas encore fetchées, on commence l'intervalle de ping
+        if (!sessionsFetched) { 
+            pingInterval = setInterval(async () => {
+                if (Date.now() - startTime > MAX_WAIT_TIME) {
+                    clearInterval(pingInterval);
+                    clearInterval(progressTimer);
+                    if (isMounted) setIsTimeoutError(true);
+                } else if (!sessionsFetched) { 
+                    await checkServerAndFetchData();
+                }
+            }, 2000);
         }
     };
     
-    checkServerAndFetchData(); // Premier essai immédiat
-    
-    pingInterval = setInterval(() => {
-        if (Date.now() - startTime > MAX_WAIT_TIME) {
-            clearInterval(pingInterval);
-            clearInterval(progressTimer);
-            if (isMounted) setIsTimeoutError(true);
-        } else if (!sessionsFetched) { // On ping tant que les sessions ne sont pas là
-            checkServerAndFetchData();
-        }
-    }, 2000);
+    initialFetch();
 
     return () => {
       isMounted = false;
@@ -134,26 +142,31 @@ function App() {
       clearInterval(pingInterval);
       clearTimeout(minTimeTimeout);
     };
-  }, [setInitialSessions]); 
+  }, [checkServerAndFetchData, sessionsFetched]); // Ajout de sessionsFetched et checkServerAndFetchData comme dépendances
 
   // 3. FERMETURE DU SPLASH
   useEffect(() => {
-    // La condition de fermeture est maintenant: Sessions Fetchées ET Temps minimum passé
+    // La condition de fermeture est: Sessions Fetchées ET Temps minimum passé
     if (sessionsFetched && fixedAnimationTimerFinished) {
       setProgress(100); 
       const t = setTimeout(() => {
         setShowSplash(false); // FINI ! Le contenu est prêt derrière.
-        // MARQUER LE PREMIER CHARGEMENT COMME TERMINÉ
         setIsInitialLoad(false); 
       }, 500); 
       return () => clearTimeout(t);
     }
   }, [sessionsFetched, fixedAnimationTimerFinished]);
 
-  const onVideoEnd = () => {
-    // Cette fonction n'est plus critique pour la logique mais est conservée par sécurité
-  };
+  const LazySpinnerWrapper = <LazySpinner />;
 
+  const RouteWrapper = ({ element }) => {
+    // Si c'est la page d'accueil ET le premier chargement, on ne met PAS la PageTransition.
+    if (isInitialLoad && location.pathname === '/') {
+        return element; 
+    }
+    return <PageTransition>{element}</PageTransition>;
+  };
+  
   if (isOffline || isTimeoutError) return <LoadingTimeout />;
 
   if (showSplash) {
@@ -165,21 +178,14 @@ function App() {
       </AnimatePresence>
     );
   }
-
-  // Fonction pour wrapper les routes de navigation (toutes SAUF la HomePage au premier chargement)
-  const RouteWrapper = ({ element }) => {
-    // Si c'est la page d'accueil ET le premier chargement, on ne met PAS la PageTransition.
-    // Sinon, on l'applique.
-    if (isInitialLoad && location.pathname === '/') {
-        return element; 
-    }
-    return <PageTransition>{element}</PageTransition>;
-  };
   
+  // Si le splash a disparu mais que les Lazy Imports n'ont pas fini, on montre le spinner générique
+  const fallbackComponent = (location.pathname === '/' && !isInitialLoad) ? null : LazySpinnerWrapper;
+
   return (
     <Box sx={{ height: '100vh', overflow: 'auto' }}>
       <AnimatePresence mode="wait">
-        <Suspense fallback={<LazySpinner />}> 
+        <Suspense fallback={fallbackComponent}> 
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={<Layout />}>
               
