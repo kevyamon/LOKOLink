@@ -26,7 +26,6 @@ const DelegateDashboardPage = React.lazy(() => import('./pages/DelegateDashboard
 const DelegateSessionsPage = React.lazy(() => import('./pages/DelegateSessionsPage'));
 const SuperAdminDashboardPage = React.lazy(() => import('./pages/SuperAdminDashboardPage'));
 
-// Loader simple pour le lazy loading (invisible si splash est là)
 const LazySpinner = () => (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
     <CircularProgress sx={{ color: '#d32f2f' }} />
@@ -52,17 +51,22 @@ function App() {
   const [backendReady, setBackendReady] = useState(false);
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   
-  // <--- NOUVEAU : État pour détecter si l'utilisateur est Hors Ligne dès le début ---
+  // État de connexion (Initialisé correctement)
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   
   const location = useLocation();
 
-  // 1. GESTION HORS LIGNE (Écouteurs Réseau)
+  // 1. GESTION HORS LIGNE (Écouteurs)
   useEffect(() => {
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
+    const handleOnline = () => {
+        console.log("Connexion rétablie !");
+        setIsOffline(false);
+    };
+    const handleOffline = () => {
+        console.log("Connexion perdue.");
+        setIsOffline(true);
+    };
 
-    // On écoute les changements d'état du réseau
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
@@ -74,16 +78,16 @@ function App() {
 
   // 2. PING SERVEUR & PROGRESSION
   useEffect(() => {
-    // Si on est hors ligne, inutile de pinger, on laisse l'écran Offline gérer
+    // Si on est hors ligne, on met en pause la logique de ping
     if (isOffline) return;
 
     let isMounted = true;
     let progressTimer;
     let pingInterval;
-    const MAX_WAIT_TIME = 60000; // 60s max
+    const MAX_WAIT_TIME = 60000; 
     const startTime = Date.now();
 
-    // A. Barre de progression "Psychologique" (Monte jusqu'à 90%)
+    // A. Barre de progression
     progressTimer = setInterval(() => {
       setProgress((old) => {
         if (old >= 90) return 90; 
@@ -101,8 +105,12 @@ function App() {
                 setBackendReady(true);
                 clearInterval(pingInterval);
             }
-        } catch (e) {}
+        } catch (e) {
+            // Echec silencieux, on réessaiera
+        }
     };
+    
+    // On lance un check immédiat
     checkServer();
     
     pingInterval = setInterval(() => {
@@ -120,18 +128,17 @@ function App() {
       clearInterval(progressTimer);
       clearInterval(pingInterval);
     };
-  }, [backendReady, isOffline]); // Ajout de isOffline aux dépendances
+    // IMPORTANT : isOffline est ajouté aux dépendances.
+    // Si isOffline passe de true à false, cet effet redémarre et relance checkServer()
+  }, [backendReady, isOffline]); 
 
   // 3. ORCHESTRATION FINALE
   useEffect(() => {
-    // CONDITIONS: Serveur OK + HomePage prête (Cartes chargées)
     if (backendReady && isHomeReady && !isOffline) {
-      console.log("Tout est prêt. Attente de 2 secondes...");
+      console.log("Tout est prêt. Ouverture dans 2s...");
       
-      // On remplit la barre
       setProgress(100);
 
-      // On attend 2 secondes EXACTEMENT comme demandé
       const t = setTimeout(() => {
         setShowSplash(false);
         markFirstLoadComplete(); 
@@ -141,25 +148,22 @@ function App() {
     }
   }, [backendReady, isHomeReady, isOffline]);
 
-  // --- AFFICHAGE PRIORITAIRE : Écran Offline ou Timeout ---
-  // Si l'utilisateur est hors ligne OU si le serveur ne répond pas après 60s
-  if (isOffline || isTimeoutError) {
-      return <LoadingTimeout />;
-  }
-
   return (
     <>
-      {/* SPLASH SCREEN (Z-index 9999) */}
+      {/* ECRAN HORS LIGNE / TIMEOUT
+         On le rend TOUJOURS (pour précharger la vidéo), 
+         mais on contrôle sa visibilité via la prop 'visible'.
+      */}
+      <LoadingTimeout visible={isOffline || isTimeoutError} />
+
+      {/* SPLASH SCREEN (Z-index 9999, en dessous du LoadingTimeout qui est à 99999) */}
       <AnimatePresence>
-        {showSplash && <SplashScreen progress={progress} />}
+        {showSplash && !isOffline && !isTimeoutError && <SplashScreen progress={progress} />}
       </AnimatePresence>
 
-      {/* LE SITE (Chargé en background).
-        Le site est rendu immédiatement derrière le splash pour préparer les données.
-      */}
+      {/* LE SITE (Chargé en background) */}
       <Box sx={{ 
           height: '100vh', 
-          // On bloque le scroll tant que le splash est là
           overflow: showSplash ? 'hidden' : 'auto',
       }}>
         <AnimatePresence mode="wait">
