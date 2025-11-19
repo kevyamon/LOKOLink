@@ -19,7 +19,8 @@ import {
   Chip,
   Card,
   CardContent,
-  CardActionArea // <--- AJOUTÉ ICI (C'était le coupable)
+  CardActionArea,
+  Divider // <--- LE COUPABLE EST LÀ (Ajouté)
 } from '@mui/material';
 import { 
   Lock, 
@@ -28,7 +29,7 @@ import {
   Person, 
   EmojiEvents, 
   Verified, 
-  People // <--- AJOUTÉ ICI (Pour l'avatar Duo)
+  People 
 } from '@mui/icons-material'; 
 import { useParams, useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
@@ -38,33 +39,47 @@ import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
 import AnimatedModal from '../components/AnimatedModal';
 
-// --- Styles Gélule (Input) ---
+// --- Styles Gélule (Input) Améliorés ---
 const pillTextFieldSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: '50px',
-    backgroundColor: '#f9f9f9',
-    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)',
+    backgroundColor: '#f5f5f5', // Gris très léger pour le contraste
+    border: '1px solid #e0e0e0', // Bordure fine pour la visibilité
+    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.03)',
+    transition: 'all 0.3s ease',
+    '&:hover': {
+      backgroundColor: '#eeeeee',
+      borderColor: '#bdbdbd',
+    },
+    '&.Mui-focused': {
+      backgroundColor: '#fff',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    },
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
       border: '2px solid',
       borderColor: 'primary.main',
     },
-    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+    '& .MuiOutlinedInput-notchedOutline': { border: 'none' }, // On cache la bordure par défaut de MUI
   },
+  '& .MuiInputLabel-root': {
+    fontWeight: '500', // Label plus gras
+  }
 };
 
 // --- Styles Bouton Standard ---
 const pillButtonSx = (color = 'primary') => ({
   fontWeight: 'bold',
   borderRadius: '50px',
-  padding: '12px 0',
-  fontSize: '1rem',
+  padding: '14px 0', // Un peu plus haut
+  fontSize: '1.1rem', // Texte plus gros
+  textTransform: 'none', // Pas de MAJUSCULES forcées, plus lisible
   backgroundColor: color === 'primary' ? '#1976d2' : '#2E7D32',
-  boxShadow: `0 4px 12px rgba(${color === 'primary' ? '25, 118, 210' : '46, 125, 50'}, 0.4)`,
+  boxShadow: `0 6px 14px rgba(${color === 'primary' ? '25, 118, 210' : '46, 125, 50'}, 0.3)`,
   transition: 'all 0.3s ease-in-out',
   '&:hover': {
     backgroundColor: color === 'primary' ? '#1565c0' : '#388E3C',
     transform: 'translateY(-2px)',
-    boxShadow: `0 6px 16px rgba(${color === 'primary' ? '25, 118, 210' : '46, 125, 50'}, 0.5)`,
+    boxShadow: `0 8px 20px rgba(${color === 'primary' ? '25, 118, 210' : '46, 125, 50'}, 0.4)`,
   },
 });
 
@@ -102,10 +117,9 @@ const SessionPage = () => {
   const [recycleConfetti, setRecycleConfetti] = useState(true);
   const [countdown, setCountdown] = useState(null);
 
-  // État Erreur Critique
   const [isCriticalError, setIsCriticalError] = useState(false);
 
-  // 1. Charger les détails de la session
+  // 1. Charger les détails
   useEffect(() => {
     const fetchSessionDetails = async () => {
       try {
@@ -121,17 +135,17 @@ const SessionPage = () => {
     fetchSessionDetails();
   }, [sessionID]);
 
-  // 2. Gestion Timer Confettis
+  // 2. Confettis
   useEffect(() => {
     if (pairingResult) {
       const timer = setTimeout(() => {
         setRecycleConfetti(false);
-      }, 5000); // On laisse les confettis un peu plus longtemps (5s) pour la fête
+      }, 5000);
       return () => clearTimeout(timer);
     }
   }, [pairingResult]);
 
-  // 3. Gestion Compte à Rebours
+  // 3. Compte à rebours
   useEffect(() => {
     if (pairingResult) {
       setCountdown(3);
@@ -144,7 +158,7 @@ const SessionPage = () => {
           setCountdown(0);
           clearInterval(countdownInterval);
         }
-      }, 800); // Un peu plus lent pour le suspense
+      }, 800); 
       return () => clearInterval(countdownInterval);
     }
   }, [pairingResult]);
@@ -168,8 +182,7 @@ const SessionPage = () => {
         sessionCode,
       });
 
-      // Petit délai artificiel pour l'UX si la réponse est trop rapide
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 500)); // Petit délai UX
 
       setLoading(false);
       setPairingResult({
@@ -196,7 +209,7 @@ const SessionPage = () => {
     setError(null);
   };
 
-  // --- RENDU VUE CRITIQUE ---
+  // --- RENDU CRITIQUE ---
   if (isCriticalError) {
     return (
       <PageTransition>
@@ -226,7 +239,7 @@ const SessionPage = () => {
   // --- RENDU SUCCÈS (LE REVEAL) ---
   if (pairingResult) {
     const genreText = godchildGender === 'Homme' ? 'le Filleul' : 'la Filleule';
-    const isDuo = pairingResult.sponsorName.includes('&'); // Détection si c'est un binôme
+    const isDuo = pairingResult.sponsorName.includes('&'); 
 
     return (
       <PageTransition>
@@ -235,7 +248,7 @@ const SessionPage = () => {
           height={height}
           numberOfPieces={500}
           gravity={0.12}
-          colors={['#FFD700', '#ff0000', '#000000', '#ffffff']} // Couleurs "LOKO"
+          colors={['#FFD700', '#ff0000', '#000000', '#ffffff']}
           recycle={recycleConfetti}
         />
         
@@ -247,7 +260,7 @@ const SessionPage = () => {
           p: 2 
         }}>
           <AnimatePresence mode="wait">
-            {/* PHASE 1 : COMPTE À REBOURS GÉANT */}
+            {/* COMPTE À REBOURS */}
             {countdown > 0 && (
               <motion.div
                 key="countdown"
@@ -262,7 +275,7 @@ const SessionPage = () => {
               </motion.div>
             )}
 
-            {/* PHASE 2 : LA CARTE DE RÉVÉLATION */}
+            {/* CARTE FINALE */}
             {countdown === 0 && (
               <motion.div
                 key="reveal"
@@ -274,22 +287,19 @@ const SessionPage = () => {
                 <Card sx={{ 
                   borderRadius: '30px', 
                   overflow: 'visible',
-                  background: 'rgba(255, 255, 255, 0.95)', // Fond blanc quasi opaque
-                  boxShadow: '0 20px 50px rgba(0,0,0,0.3)', // Ombre profonde
+                  background: 'rgba(255, 255, 255, 0.95)', 
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.3)', 
                   position: 'relative',
                   textAlign: 'center'
                 }}>
-                  
-                  {/* BANDEAU SUPÉRIEUR (Décoratif) */}
                   <Box sx={{ 
                     height: '120px', 
                     background: 'linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%)', 
                     borderRadius: '30px 30px 50% 50%',
-                    mb: -6 // Pour chevaucher l'avatar
+                    mb: -6 
                   }} />
 
                   <CardContent sx={{ pt: 0, px: 3, pb: 4 }}>
-                    {/* AVATAR(S) DU PARRAIN */}
                     <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
                         <Avatar sx={{ 
                           width: 120, 
@@ -319,7 +329,6 @@ const SessionPage = () => {
                       Tu es {genreText} de :
                     </Typography>
 
-                    {/* NOM DU PARRAIN (LE GROS TITRE) */}
                     <Typography variant="h4" component="h2" sx={{ 
                       fontWeight: '900', 
                       color: '#1a1a1a',
@@ -337,7 +346,6 @@ const SessionPage = () => {
 
                     <Divider variant="middle" sx={{ my: 2, borderColor: 'rgba(0,0,0,0.1)' }} />
 
-                    {/* NUMÉRO WHATSAPP (Call to Action) */}
                     <Stack spacing={2} alignItems="center">
                         <Typography variant="h5" sx={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#333', letterSpacing: 2 }}>
                            {pairingResult.sponsorPhone}
@@ -353,7 +361,7 @@ const SessionPage = () => {
                                 startIcon={<WhatsApp />}
                                 fullWidth
                                 size="large"
-                                href={`https://wa.me/225${pairingResult.sponsorPhone.split('/')[0].replace(/\s/g, '')}`} // Prend le 1er numéro si duo
+                                href={`https://wa.me/225${pairingResult.sponsorPhone.split('/')[0].replace(/\s/g, '')}`} 
                                 target="_blank"
                                 sx={{ 
                                     borderRadius: '50px', 
@@ -389,7 +397,7 @@ const SessionPage = () => {
     );
   }
 
-  // --- RENDU FORMULAIRE (Le suspense avant la tempête) ---
+  // --- RENDU FORMULAIRE ---
   return (
     <PageTransition>
       <>
@@ -401,8 +409,9 @@ const SessionPage = () => {
               <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 'bold' }}>
                 {sessionName}
               </Typography>
+              {/* TEXTE MODIFIÉ ICI */}
               <Typography variant="subtitle1" color="text.secondary">
-                C'est le moment de découvrir ton binôme !
+                Ton Parrain t'attend avec impatience !
               </Typography>
           </Box>
 
@@ -414,7 +423,7 @@ const SessionPage = () => {
               value={godchildName}
               onChange={(e) => setGodchildName(e.target.value)}
               disabled={loading}
-              sx={{ ...pillTextFieldSx, mb: 2 }}
+              sx={{ ...pillTextFieldSx, mb: 3 }}
             />
             
             <TextField
@@ -425,7 +434,7 @@ const SessionPage = () => {
               value={sessionCode}
               onChange={(e) => setSessionCode(e.target.value)}
               disabled={loading}
-              sx={{ ...pillTextFieldSx, mb: 2 }}
+              sx={{ ...pillTextFieldSx, mb: 3 }}
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end" sx={{ mr: 1 }}>
@@ -435,20 +444,51 @@ const SessionPage = () => {
               }}
             />
 
-            <FormControl component="fieldset" required disabled={loading} error={Boolean(error && error.includes('genre'))} sx={{ ml: 1, mb: 1, width: '100%' }}>
-              <FormLabel component="legend" sx={{ ml: 1, mb: 1 }}>Je suis :</FormLabel>
+            <FormControl component="fieldset" required disabled={loading} error={Boolean(error && error.includes('genre'))} sx={{ width: '100%', mb: 2 }}>
+              <FormLabel component="legend" sx={{ mb: 1.5, fontWeight: 'bold', color: 'text.primary' }}>Je suis :</FormLabel>
               <RadioGroup
                 row
                 name="godchildGender"
                 value={godchildGender}
                 onChange={(e) => setGodchildGender(e.target.value)}
-                sx={{ justifyContent: 'space-around' }}
+                sx={{ justifyContent: 'space-between', gap: 2 }}
               >
-                <CardActionArea sx={{ borderRadius: '16px', border: godchildGender === 'Homme' ? '2px solid #1976d2' : '1px solid #eee', p: 1, width: '45%' }} onClick={() => setGodchildGender('Homme')}>
-                    <FormControlLabel value="Homme" control={<Radio />} label="Un Homme" sx={{ m: 0 }} />
+                <CardActionArea 
+                  sx={{ 
+                    borderRadius: '16px', 
+                    border: godchildGender === 'Homme' ? '2px solid #1976d2' : '1px solid #e0e0e0', 
+                    p: 1.5, 
+                    flex: 1,
+                    bgcolor: godchildGender === 'Homme' ? 'rgba(25, 118, 210, 0.05)' : 'transparent',
+                    transition: 'all 0.2s'
+                  }} 
+                  onClick={() => setGodchildGender('Homme')}
+                >
+                    <FormControlLabel 
+                      value="Homme" 
+                      control={<Radio sx={{ '& .MuiSvgIcon-root': { fontSize: 28 } }} />} // Radio plus gros
+                      label="Un Homme" 
+                      sx={{ m: 0, width: '100%', justifyContent: 'center' }} 
+                    />
                 </CardActionArea>
-                <CardActionArea sx={{ borderRadius: '16px', border: godchildGender === 'Femme' ? '2px solid #e91e63' : '1px solid #eee', p: 1, width: '45%' }} onClick={() => setGodchildGender('Femme')}>
-                    <FormControlLabel value="Femme" control={<Radio color="secondary"/>} label="Une Femme" sx={{ m: 0 }} />
+
+                <CardActionArea 
+                  sx={{ 
+                    borderRadius: '16px', 
+                    border: godchildGender === 'Femme' ? '2px solid #e91e63' : '1px solid #e0e0e0', 
+                    p: 1.5, 
+                    flex: 1,
+                    bgcolor: godchildGender === 'Femme' ? 'rgba(233, 30, 99, 0.05)' : 'transparent',
+                    transition: 'all 0.2s'
+                  }} 
+                  onClick={() => setGodchildGender('Femme')}
+                >
+                    <FormControlLabel 
+                      value="Femme" 
+                      control={<Radio color="secondary" sx={{ '& .MuiSvgIcon-root': { fontSize: 28 } }} />} // Radio plus gros
+                      label="Une Femme" 
+                      sx={{ m: 0, width: '100%', justifyContent: 'center' }} 
+                    />
                 </CardActionArea>
               </RadioGroup>
             </FormControl>
@@ -459,7 +499,7 @@ const SessionPage = () => {
               fullWidth
               size="large"
               disabled={loading}
-              sx={{ mt: 4, ...pillButtonSx('success'), fontSize: '1.1rem', py: 1.8 }}
+              sx={{ mt: 3, ...pillButtonSx('success') }}
             >
               {loading ? <CircularProgress size={24} color="inherit" /> : 'Révéler mon Parrain'}
             </Button>
@@ -468,7 +508,7 @@ const SessionPage = () => {
 
         <AnimatedModal open={showErrorModal} onClose={handleCloseErrorModal}>
           <Typography variant="h6" component="h2" gutterBottom color="error" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Lock /> Erreur
+            <Lock /> Oups !
           </Typography>
           <Typography sx={{ mt: 2 }}>{error}</Typography>
           <Button variant="contained" fullWidth onClick={handleCloseErrorModal} sx={{ mt: 3, ...pillButtonSx() }}>
