@@ -1,21 +1,18 @@
 // src/components/SplashScreen.jsx
-import React, { useRef } from 'react';
+import React from 'react';
 import { Box, Typography, LinearProgress } from '@mui/material';
 import { motion } from 'framer-motion'; 
-// Import des assets (assure-toi que ces chemins sont corrects)
+// Import des assets
 import videoAnim from '../assets/logo_anim.mp4'; 
 import logoStatic from '../assets/logo.png'; 
 
 const SplashScreen = ({ progress }) => {
-  const videoRef = useRef(null);
   
-  // Note: La logique d'attente minimale de 2.5s est gérée par App.jsx (fixedAnimationTimerFinished)
-
   return (
     <motion.div
       initial={{ opacity: 1 }}
       exit={{ opacity: 0 }} 
-      transition={{ duration: 0.5, ease: "easeInOut" }} 
+      transition={{ duration: 0.8, ease: "easeInOut" }} // Fondu lent et doux (Phase 3)
       style={{
         position: 'fixed',
         top: 0,
@@ -41,11 +38,10 @@ const SplashScreen = ({ progress }) => {
         justifyContent: 'center'
       }}>
         <video
-          ref={videoRef}
           muted 
           playsInline
           autoPlay
-          loop // Garanti que la vidéo joue en boucle
+          loop // Phase 1 & 2 : Boucle infinie tant que le parent ne coupe pas
           src={videoAnim}
           poster={logoStatic}
           style={{
