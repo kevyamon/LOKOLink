@@ -5,7 +5,7 @@ import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
-import { useData } from './contexts/DataContext'; // Import Context
+import { useData } from './contexts/DataContext'; 
 import api from './services/api'; 
 
 // --- COMPOSANTS DE BASE ---
@@ -46,16 +46,37 @@ const AdminRoute = () => {
 };
 
 function App() {
-  const { isHomeReady, markFirstLoadComplete } = useData(); // On écoute l'état global
+  const { isHomeReady, markFirstLoadComplete } = useData(); 
   const [showSplash, setShowSplash] = useState(true);
   const [progress, setProgress] = useState(0);
   const [backendReady, setBackendReady] = useState(false);
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   
+  // <--- NOUVEAU : État pour détecter si l'utilisateur est Hors Ligne dès le début ---
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  
   const location = useLocation();
 
-  // 1. PING SERVEUR & PROGRESSION
+  // 1. GESTION HORS LIGNE (Écouteurs Réseau)
   useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    // On écoute les changements d'état du réseau
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // 2. PING SERVEUR & PROGRESSION
+  useEffect(() => {
+    // Si on est hors ligne, inutile de pinger, on laisse l'écran Offline gérer
+    if (isOffline) return;
+
     let isMounted = true;
     let progressTimer;
     let pingInterval;
@@ -83,6 +104,7 @@ function App() {
         } catch (e) {}
     };
     checkServer();
+    
     pingInterval = setInterval(() => {
         if (Date.now() - startTime > MAX_WAIT_TIME) {
             clearInterval(pingInterval);
@@ -98,12 +120,12 @@ function App() {
       clearInterval(progressTimer);
       clearInterval(pingInterval);
     };
-  }, [backendReady]);
+  }, [backendReady, isOffline]); // Ajout de isOffline aux dépendances
 
-  // 2. ORCHESTRATION FINALE
+  // 3. ORCHESTRATION FINALE
   useEffect(() => {
     // CONDITIONS: Serveur OK + HomePage prête (Cartes chargées)
-    if (backendReady && isHomeReady) {
+    if (backendReady && isHomeReady && !isOffline) {
       console.log("Tout est prêt. Attente de 2 secondes...");
       
       // On remplit la barre
@@ -112,14 +134,18 @@ function App() {
       // On attend 2 secondes EXACTEMENT comme demandé
       const t = setTimeout(() => {
         setShowSplash(false);
-        markFirstLoadComplete(); // On dit au contexte que c'est fini (réactive le wipe pour la suite)
+        markFirstLoadComplete(); 
       }, 2000);
       
       return () => clearTimeout(t);
     }
-  }, [backendReady, isHomeReady]);
+  }, [backendReady, isHomeReady, isOffline]);
 
-  if (isTimeoutError) return <LoadingTimeout />;
+  // --- AFFICHAGE PRIORITAIRE : Écran Offline ou Timeout ---
+  // Si l'utilisateur est hors ligne OU si le serveur ne répond pas après 60s
+  if (isOffline || isTimeoutError) {
+      return <LoadingTimeout />;
+  }
 
   return (
     <>
@@ -129,15 +155,12 @@ function App() {
       </AnimatePresence>
 
       {/* LE SITE (Chargé en background).
-        On enlève la condition !showSplash pour qu'il se charge TOUT DE SUITE.
-        Le splash le cache grâce au z-index.
+        Le site est rendu immédiatement derrière le splash pour préparer les données.
       */}
       <Box sx={{ 
           height: '100vh', 
           // On bloque le scroll tant que le splash est là
           overflow: showSplash ? 'hidden' : 'auto',
-          // Petite astuce : si splash est là, on rend le site transparent ou caché pour éviter les glitches visuels 
-          // MAIS on veut qu'il charge. Opacity 1 est ok car z-index splash est plus haut.
       }}>
         <AnimatePresence mode="wait">
           <Suspense fallback={<LazySpinner />}> 
