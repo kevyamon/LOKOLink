@@ -14,8 +14,13 @@ import {
   FormControl,
   FormLabel,
   InputAdornment,
+  Avatar,
+  Stack,
+  Chip,
+  Card,
+  CardContent
 } from '@mui/material';
-import { Lock, Home } from '@mui/icons-material'; // Ajout icône Home
+import { Lock, Home, WhatsApp, Person, EmojiEvents, Verified } from '@mui/icons-material'; 
 import { useParams, useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,7 +29,7 @@ import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
 import AnimatedModal from '../components/AnimatedModal';
 
-// --- Styles Gélule (inchangés) ---
+// --- Styles Gélule (Input) ---
 const pillTextFieldSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: '50px',
@@ -38,6 +43,7 @@ const pillTextFieldSx = {
   },
 };
 
+// --- Styles Bouton Standard ---
 const pillButtonSx = (color = 'primary') => ({
   fontWeight: 'bold',
   borderRadius: '50px',
@@ -53,7 +59,7 @@ const pillButtonSx = (color = 'primary') => ({
   },
 });
 
-// --- Hook Utilitaire (inchangé) ---
+// --- Hook Taille Fenêtre ---
 const useWindowSize = () => {
   const [windowSize, setWindowSize] = useState({
     width: window.innerWidth,
@@ -65,68 +71,6 @@ const useWindowSize = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
   return windowSize;
-};
-
-// --- COMPOSANT ANIMÉ NUMÉRO (CORRIGÉ POUR MOBILE) ---
-const AnimatedPhoneNumber = ({ phoneNumber }) => {
-  const [displayedNumber, setDisplayedNumber] = useState('');
-  const timeoutRef = useRef(null);
-
-  useEffect(() => {
-    if (!phoneNumber) {
-      setDisplayedNumber('');
-      return;
-    }
-    setDisplayedNumber('');
-    const strPhone = String(phoneNumber);
-    const digits = strPhone.split('');
-    let currentIndex = 0;
-
-    if (timeoutRef.current) clearInterval(timeoutRef.current);
-
-    timeoutRef.current = setInterval(() => {
-      if (currentIndex < digits.length) {
-        const digit = digits[currentIndex];
-        if (digit !== undefined) {
-           setDisplayedNumber((prev) => prev + digit);
-        }
-        currentIndex++;
-      } else {
-        clearInterval(timeoutRef.current);
-      }
-    }, 500);
-
-    return () => {
-      if (timeoutRef.current) clearInterval(timeoutRef.current);
-    };
-  }, [phoneNumber]);
-
-  return (
-    <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-      <Typography variant="h6" color="text.secondary" gutterBottom>
-        Contact :
-      </Typography>
-      <Typography
-        // CORRECTION 3: Responsive Font Size et Spacing
-        sx={{
-          fontSize: { xs: '1.8rem', sm: '2.5rem' }, // Plus petit sur mobile
-          fontWeight: 'bold',
-          color: '#d32f2f',
-          letterSpacing: { xs: '2px', sm: '4px' }, // Moins espacé sur mobile
-          fontFamily: 'monospace',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.1)',
-          minHeight: '40px',
-          // On retire overflow: hidden qui coupait le texte
-          whiteSpace: 'nowrap',
-          // En dernier recours, on réduit si ça dépasse vraiment
-          width: '100%',
-          textAlign: 'center',
-        }}
-      >
-        {displayedNumber}
-      </Typography>
-    </Box>
-  );
 };
 
 const SessionPage = () => {
@@ -149,7 +93,7 @@ const SessionPage = () => {
   const [recycleConfetti, setRecycleConfetti] = useState(true);
   const [countdown, setCountdown] = useState(null);
 
-  // NOUVEAU : État pour gérer l'erreur critique (session supprimée)
+  // État Erreur Critique
   const [isCriticalError, setIsCriticalError] = useState(false);
 
   // 1. Charger les détails de la session
@@ -160,10 +104,9 @@ const SessionPage = () => {
         setSessionName(data.sessionName);
       } catch (err) {
         console.error('Erreur chargement session', err);
-        // Si 404 ou autre erreur, on active le mode "Erreur Critique"
         const message = err.response?.data?.message || "Cette session n'est plus disponible.";
         setError(message);
-        setIsCriticalError(true); // Déclenche l'affichage de secours
+        setIsCriticalError(true); 
       }
     };
     fetchSessionDetails();
@@ -174,7 +117,7 @@ const SessionPage = () => {
     if (pairingResult) {
       const timer = setTimeout(() => {
         setRecycleConfetti(false);
-      }, 3000);
+      }, 5000); // On laisse les confettis un peu plus longtemps (5s) pour la fête
       return () => clearTimeout(timer);
     }
   }, [pairingResult]);
@@ -192,7 +135,7 @@ const SessionPage = () => {
           setCountdown(0);
           clearInterval(countdownInterval);
         }
-      }, 700);
+      }, 800); // Un peu plus lent pour le suspense
       return () => clearInterval(countdownInterval);
     }
   }, [pairingResult]);
@@ -202,7 +145,7 @@ const SessionPage = () => {
     e.preventDefault();
     if (!godchildGender || !sessionCode) {
       setError('Veuillez sélectionner votre genre et entrer le Code LOKO.');
-      setShowErrorModal(true); // Afficher le modal pour les erreurs simples
+      setShowErrorModal(true);
       return;
     }
     setLoading(true);
@@ -216,6 +159,9 @@ const SessionPage = () => {
         sessionCode,
       });
 
+      // Petit délai artificiel pour l'UX si la réponse est trop rapide
+      await new Promise(r => setTimeout(r, 500));
+
       setLoading(false);
       setPairingResult({
         sponsorName: data.sponsorName,
@@ -228,11 +174,9 @@ const SessionPage = () => {
       const errorMessage = err.response?.data?.message || 'Une erreur est survenue.';
       setError(errorMessage);
       
-      // Si l'erreur est que la session est terminée/supprimée, c'est critique
       if (errorMessage.includes('terminée') || errorMessage.includes('introuvable')) {
         setIsCriticalError(true);
       } else {
-        // Erreur simple (mauvais code, etc.) -> Modal
         setShowErrorModal(true);
       }
     }
@@ -243,7 +187,7 @@ const SessionPage = () => {
     setError(null);
   };
 
-  // --- RENDU VUE CRITIQUE (CORRECTION 2) ---
+  // --- RENDU VUE CRITIQUE ---
   if (isCriticalError) {
     return (
       <PageTransition>
@@ -251,7 +195,7 @@ const SessionPage = () => {
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Typography variant="h1" sx={{ fontSize: '4rem', mb: 2 }}>⚠️</Typography>
             <Typography variant="h5" component="h1" gutterBottom sx={{ fontWeight: 'bold', color: 'error.main' }}>
-              Oups !
+              Session Indisponible
             </Typography>
             <Typography variant="body1" sx={{ mb: 4 }}>
               {error || "Cette session a été supprimée ou n'existe plus."}
@@ -270,90 +214,188 @@ const SessionPage = () => {
     );
   }
 
-  // --- RENDU SUCCÈS ---
+  // --- RENDU SUCCÈS (LE REVEAL) ---
   if (pairingResult) {
     const genreText = godchildGender === 'Homme' ? 'le Filleul' : 'la Filleule';
+    const isDuo = pairingResult.sponsorName.includes('&'); // Détection si c'est un binôme
+
     return (
       <PageTransition>
         <Confetti
           width={width}
           height={height}
-          numberOfPieces={400}
-          gravity={0.15}
+          numberOfPieces={500}
+          gravity={0.12}
+          colors={['#FFD700', '#ff0000', '#000000', '#ffffff']} // Couleurs "LOKO"
           recycle={recycleConfetti}
         />
         
-        <FormContainer maxWidth="md">
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h3" component="div" gutterBottom>
-              🥳🎉🎊
-            </Typography>
-            <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 'bold' }}>
-              Félicitations, {godchildName} !
-            </Typography>
-            <Typography variant="h6" sx={{ mt: 3 }}>
-              Vous êtes {genreText} de :
-            </Typography>
-            
-            <AnimatePresence mode="wait">
-              {countdown > 0 && (
-                <motion.div
-                  key="countdown"
-                  initial={{ opacity: 0, scale: 0.5 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.5 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <Typography variant="h2" color="primary" sx={{ mt: 2, mb: 2, fontWeight: '900' }}>
-                    {countdown}
-                  </Typography>
-                </motion.div>
-              )}
-              {countdown === 0 && (
-                <motion.div
-                  key="sponsorName"
-                  initial={{ opacity: 0, scale: 0.5 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{
-                    type: "spring",
-                    stiffness: 260,
-                    damping: 20
-                  }}
-                  style={{ display: 'inline-block' }}
-                >
-                  <Typography variant="h3" color="primary" sx={{ mt: 2, mb: 2, fontWeight: '900', textTransform: 'uppercase' }}>
-                    {pairingResult.sponsorName}
-                  </Typography>
-                </motion.div>
-              )}
-            </AnimatePresence>
+        <Box sx={{ 
+          minHeight: '80vh', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          p: 2 
+        }}>
+          <AnimatePresence mode="wait">
+            {/* PHASE 1 : COMPTE À REBOURS GÉANT */}
+            {countdown > 0 && (
+              <motion.div
+                key="countdown"
+                initial={{ scale: 0.5, opacity: 0 }}
+                animate={{ scale: 1.5, opacity: 1 }}
+                exit={{ scale: 3, opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <Typography variant="h1" sx={{ fontWeight: '900', color: 'white', textShadow: '0 0 20px rgba(0,0,0,0.5)', fontSize: '8rem' }}>
+                  {countdown}
+                </Typography>
+              </motion.div>
+            )}
 
-            <AnimatedPhoneNumber phoneNumber={pairingResult.sponsorPhone} />
+            {/* PHASE 2 : LA CARTE DE RÉVÉLATION */}
+            {countdown === 0 && (
+              <motion.div
+                key="reveal"
+                initial={{ scale: 0.8, opacity: 0, y: 50 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                style={{ width: '100%', maxWidth: '500px' }}
+              >
+                <Card sx={{ 
+                  borderRadius: '30px', 
+                  overflow: 'visible',
+                  background: 'rgba(255, 255, 255, 0.95)', // Fond blanc quasi opaque
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.3)', // Ombre profonde
+                  position: 'relative',
+                  textAlign: 'center'
+                }}>
+                  
+                  {/* BANDEAU SUPÉRIEUR (Décoratif) */}
+                  <Box sx={{ 
+                    height: '120px', 
+                    background: 'linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%)', 
+                    borderRadius: '30px 30px 50% 50%',
+                    mb: -6 // Pour chevaucher l'avatar
+                  }} />
 
-            <Button
-              variant="contained"
-              onClick={() => navigate('/')}
-              sx={{ mt: 4, ...pillButtonSx() }}
-            >
-              Retour à l'accueil
-            </Button>
-          </Box>
-        </FormContainer>
+                  <CardContent sx={{ pt: 0, px: 3, pb: 4 }}>
+                    {/* AVATAR(S) DU PARRAIN */}
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+                        <Avatar sx={{ 
+                          width: 120, 
+                          height: 120, 
+                          bgcolor: '#fff', 
+                          border: '6px solid #fff',
+                          boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                          color: '#d32f2f'
+                        }}>
+                          {isDuo ? <People sx={{ fontSize: 60 }} /> : <Person sx={{ fontSize: 70 }} />}
+                        </Avatar>
+                    </Box>
+
+                    <Chip 
+                      icon={<Verified />} 
+                      label="Parrain Officiel" 
+                      color="primary" 
+                      size="small" 
+                      sx={{ mb: 2, fontWeight: 'bold' }} 
+                    />
+
+                    <Typography variant="h6" color="text.secondary" gutterBottom>
+                      Félicitations <strong>{godchildName}</strong> !
+                    </Typography>
+                    
+                    <Typography variant="body1" color="text.secondary">
+                      Tu es {genreText} de :
+                    </Typography>
+
+                    {/* NOM DU PARRAIN (LE GROS TITRE) */}
+                    <Typography variant="h4" component="h2" sx={{ 
+                      fontWeight: '900', 
+                      color: '#1a1a1a',
+                      mt: 1, 
+                      mb: 2,
+                      textTransform: 'uppercase',
+                      background: '-webkit-linear-gradient(45deg, #1a1a1a 30%, #d32f2f 90%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      letterSpacing: '-1px',
+                      lineHeight: 1.1
+                    }}>
+                      {pairingResult.sponsorName}
+                    </Typography>
+
+                    <Divider variant="middle" sx={{ my: 2, borderColor: 'rgba(0,0,0,0.1)' }} />
+
+                    {/* NUMÉRO WHATSAPP (Call to Action) */}
+                    <Stack spacing={2} alignItems="center">
+                        <Typography variant="h5" sx={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#333', letterSpacing: 2 }}>
+                           {pairingResult.sponsorPhone}
+                        </Typography>
+                        
+                        <motion.div 
+                          animate={{ scale: [1, 1.05, 1] }}
+                          transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                          style={{ width: '100%' }}
+                        >
+                            <Button
+                                variant="contained"
+                                startIcon={<WhatsApp />}
+                                fullWidth
+                                size="large"
+                                href={`https://wa.me/225${pairingResult.sponsorPhone.split('/')[0].replace(/\s/g, '')}`} // Prend le 1er numéro si duo
+                                target="_blank"
+                                sx={{ 
+                                    borderRadius: '50px', 
+                                    py: 1.5, 
+                                    bgcolor: '#25D366', 
+                                    fontSize: '1.1rem',
+                                    fontWeight: 'bold',
+                                    boxShadow: '0 4px 15px rgba(37, 211, 102, 0.4)',
+                                    '&:hover': { bgcolor: '#1ebc57' }
+                                }}
+                            >
+                                Contacter Maintenant
+                            </Button>
+                        </motion.div>
+                    </Stack>
+
+                  </CardContent>
+                </Card>
+
+                <Button
+                  variant="text"
+                  onClick={() => navigate('/')}
+                  sx={{ mt: 4, color: 'white', fontWeight: 'bold', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}
+                  startIcon={<Home />}
+                >
+                  Retour à l'accueil
+                </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </Box>
       </PageTransition>
     );
   }
 
-  // --- RENDU FORMULAIRE ---
+  // --- RENDU FORMULAIRE (Le suspense avant la tempête) ---
   return (
     <PageTransition>
       <>
         <FormContainer maxWidth="sm">
-          <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ fontWeight: 'bold' }}>
-            {sessionName}
-          </Typography>
-          <Typography variant="h6" align="center" gutterBottom>
-            Recherche de Parrain/Marraine
-          </Typography>
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+              <Avatar sx={{ mx: 'auto', mb: 2, bgcolor: 'primary.main', width: 56, height: 56 }}>
+                  <EmojiEvents fontSize="large" />
+              </Avatar>
+              <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 'bold' }}>
+                {sessionName}
+              </Typography>
+              <Typography variant="subtitle1" color="text.secondary">
+                C'est le moment de découvrir ton binôme !
+              </Typography>
+          </Box>
 
           <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
             <TextField
@@ -378,22 +420,27 @@ const SessionPage = () => {
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end" sx={{ mr: 1 }}>
-                    <Lock />
+                    <Lock color="action" />
                   </InputAdornment>
                 ),
               }}
             />
 
-            <FormControl component="fieldset" required disabled={loading} error={Boolean(error && error.includes('genre'))} sx={{ ml: 2, mb: 1 }}>
-              <FormLabel component="legend">Je suis :</FormLabel>
+            <FormControl component="fieldset" required disabled={loading} error={Boolean(error && error.includes('genre'))} sx={{ ml: 1, mb: 1, width: '100%' }}>
+              <FormLabel component="legend" sx={{ ml: 1, mb: 1 }}>Je suis :</FormLabel>
               <RadioGroup
                 row
                 name="godchildGender"
                 value={godchildGender}
                 onChange={(e) => setGodchildGender(e.target.value)}
+                sx={{ justifyContent: 'space-around' }}
               >
-                <FormControlLabel value="Homme" control={<Radio />} label="un Homme" />
-                <FormControlLabel value="Femme" control={<Radio />} label="une Femme" />
+                <CardActionArea sx={{ borderRadius: '16px', border: godchildGender === 'Homme' ? '2px solid #1976d2' : '1px solid #eee', p: 1, width: '45%' }} onClick={() => setGodchildGender('Homme')}>
+                    <FormControlLabel value="Homme" control={<Radio />} label="Un Homme" sx={{ m: 0 }} />
+                </CardActionArea>
+                <CardActionArea sx={{ borderRadius: '16px', border: godchildGender === 'Femme' ? '2px solid #e91e63' : '1px solid #eee', p: 1, width: '45%' }} onClick={() => setGodchildGender('Femme')}>
+                    <FormControlLabel value="Femme" control={<Radio color="secondary"/>} label="Une Femme" sx={{ m: 0 }} />
+                </CardActionArea>
               </RadioGroup>
             </FormControl>
 
@@ -403,20 +450,20 @@ const SessionPage = () => {
               fullWidth
               size="large"
               disabled={loading}
-              sx={{ mt: 3, ...pillButtonSx('success') }}
+              sx={{ mt: 4, ...pillButtonSx('success'), fontSize: '1.1rem', py: 1.8 }}
             >
-              {loading ? <CircularProgress size={24} color="inherit" /> : 'Trouver mon parrain'}
+              {loading ? <CircularProgress size={24} color="inherit" /> : 'Révéler mon Parrain'}
             </Button>
           </Box>
         </FormContainer>
 
         <AnimatedModal open={showErrorModal} onClose={handleCloseErrorModal}>
-          <Typography variant="h6" component="h2" gutterBottom>
-            {error === "Code LOKO incorrect." ? "Code Incorrect" : "Information"}
+          <Typography variant="h6" component="h2" gutterBottom color="error" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Lock /> Erreur
           </Typography>
           <Typography sx={{ mt: 2 }}>{error}</Typography>
           <Button variant="contained" fullWidth onClick={handleCloseErrorModal} sx={{ mt: 3, ...pillButtonSx() }}>
-            Fermer
+            Réessayer
           </Button>
         </AnimatedModal>
       </>
