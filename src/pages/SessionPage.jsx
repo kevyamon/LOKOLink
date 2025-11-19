@@ -18,9 +18,18 @@ import {
   Stack,
   Chip,
   Card,
-  CardContent
+  CardContent,
+  CardActionArea // <--- AJOUTÉ ICI (C'était le coupable)
 } from '@mui/material';
-import { Lock, Home, WhatsApp, Person, EmojiEvents, Verified } from '@mui/icons-material'; 
+import { 
+  Lock, 
+  Home, 
+  WhatsApp, 
+  Person, 
+  EmojiEvents, 
+  Verified, 
+  People // <--- AJOUTÉ ICI (Pour l'avatar Duo)
+} from '@mui/icons-material'; 
 import { useParams, useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
 import { motion, AnimatePresence } from 'framer-motion';
