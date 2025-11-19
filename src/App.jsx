@@ -1,20 +1,20 @@
-// src/App.jsx
+// kevyamon/lokolink/LOKOLink-8d5e5c1ab5e3913ba58b31038ef761d12a0b44aa/src/App.jsx
 
 import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
-import { useData } from './contexts/DataContext'; // <--- NOUVEAU IMPORT
+import { useData } from './contexts/DataContext';
 import api from './services/api'; 
 
 // --- COMPOSANTS ---
 import Layout from './components/Layout';
 import SplashScreen from './components/SplashScreen';
 import LoadingTimeout from './components/LoadingTimeout';
+import { PageTransition } from './components/PageTransition'; // Import pour usage conditionnel
 
 // --- PAGES (Lazy Loading) ---
-// ... (imports des pages inchangés) ...
 const HomePage = React.lazy(() => import('./pages/HomePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage'));
@@ -52,10 +52,11 @@ function App() {
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [fixedAnimationTimerFinished, setFixedAnimationTimerFinished] = useState(false);
-  // NOUVEL ÉTAT : Attendre la récupération des données
   const [sessionsFetched, setSessionsFetched] = useState(false); 
+  // NOUVEL ÉTAT : Pour gérer l'animation de transition de la première page
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   
-  const { setInitialSessions } = useData(); // <--- RÉCUPÉRATION DE LA FONCTION CONTEXT
+  const { setInitialSessions } = useData(); 
   const location = useLocation();
   const videoRef = useRef(null); 
 
@@ -133,7 +134,7 @@ function App() {
       clearInterval(pingInterval);
       clearTimeout(minTimeTimeout);
     };
-  }, []); // Vide, car le ping est géré dans le useEffect
+  }, [setInitialSessions]); 
 
   // 3. FERMETURE DU SPLASH
   useEffect(() => {
@@ -142,6 +143,8 @@ function App() {
       setProgress(100); 
       const t = setTimeout(() => {
         setShowSplash(false); // FINI ! Le contenu est prêt derrière.
+        // MARQUER LE PREMIER CHARGEMENT COMME TERMINÉ
+        setIsInitialLoad(false); 
       }, 500); 
       return () => clearTimeout(t);
     }
@@ -163,28 +166,43 @@ function App() {
     );
   }
 
+  // Fonction pour wrapper les routes de navigation (toutes SAUF la HomePage au premier chargement)
+  const RouteWrapper = ({ element }) => {
+    // Si c'est la page d'accueil ET le premier chargement, on ne met PAS la PageTransition.
+    // Sinon, on l'applique.
+    if (isInitialLoad && location.pathname === '/') {
+        return element; 
+    }
+    return <PageTransition>{element}</PageTransition>;
+  };
+  
   return (
     <Box sx={{ height: '100vh', overflow: 'auto' }}>
       <AnimatePresence mode="wait">
-        <Suspense fallback={null}> 
+        <Suspense fallback={<LazySpinner />}> 
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={<Layout />}>
-              <Route index element={<HomePage />} />
-              <Route path="session/:id" element={<SessionPage />} />
-              <Route path="rejoindre/:code" element={<JoinSessionPage />} />
-              <Route path="rejoindre" element={<JoinSessionPage />} />
-              <Route path="login" element={<LoginPage />} />
-              <Route path="register" element={<RegisterPage />} />
-              <Route path="register-eternal" element={<EternalRegisterPage />} />
+              
+              {/* Utilisation conditionnelle de RouteWrapper */}
+              <Route index element={<RouteWrapper element={<HomePage />} />} />
+              <Route path="session/:id" element={<RouteWrapper element={<SessionPage />} />} />
+              <Route path="rejoindre/:code" element={<RouteWrapper element={<JoinSessionPage />} />} />
+              <Route path="rejoindre" element={<RouteWrapper element={<JoinSessionPage />} />} />
+              <Route path="login" element={<RouteWrapper element={<LoginPage />} />} />
+              <Route path="register" element={<RouteWrapper element={<RegisterPage />} />} />
+              <Route path="register-eternal" element={<RouteWrapper element={<EternalRegisterPage />} />} />
+              
               <Route element={<ProtectedRoute />}>
-                <Route path="delegue/creer" element={<SessionCreatePage />} />
-                <Route path="delegue/sessions" element={<DelegateSessionsPage />} />
-                <Route path="delegue/dashboard/:id" element={<DelegateDashboardPage />} />
+                <Route path="delegue/creer" element={<RouteWrapper element={<SessionCreatePage />} />} />
+                <Route path="delegue/sessions" element={<RouteWrapper element={<DelegateSessionsPage />} />} />
+                <Route path="delegue/dashboard/:id" element={<RouteWrapper element={<DelegateDashboardPage />} />} />
               </Route>
+              
               <Route element={<AdminRoute />}>
-                <Route path="superadmin/dashboard" element={<SuperAdminDashboardPage />} />
+                <Route path="superadmin/dashboard" element={<RouteWrapper element={<SuperAdminDashboardPage />} />} />
               </Route>
-              <Route path="*" element={<NotFoundPage />} />
+              
+              <Route path="*" element={<RouteWrapper element={<NotFoundPage />} />} />
               <Route path="delegue/login" element={<Navigate to="/login" replace />} />
               <Route path="superadmin/login" element={<Navigate to="/login" replace />} />
             </Route>
