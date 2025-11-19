@@ -1,6 +1,6 @@
 // src/pages/RegisterPage.jsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Typography,
   Box,
@@ -11,8 +11,14 @@ import {
   InputAdornment,
   IconButton,
   Link as MuiLink,
+  LinearProgress,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Fade
 } from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import { Visibility, VisibilityOff, CheckCircle, Cancel, RadioButtonUnchecked } from '@mui/icons-material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -58,10 +64,18 @@ const RegisterPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [registrationCode, setRegistrationCode] = useState(''); // Sert pour Code Délégué OU Eternal Key
+  const [registrationCode, setRegistrationCode] = useState(''); 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+
+  // États Sécurité Mot de Passe
+  const [passwordScore, setPasswordScore] = useState(0);
+  const [criteria, setCriteria] = useState({
+    length: false,
+    hasLetter: false,
+    hasNumber: false,
+  });
 
   // Handlers pour l'icône œil
   const handleClickShowPassword = () => setShowPassword((show) => !show);
@@ -69,11 +83,44 @@ const RegisterPage = () => {
     event.preventDefault();
   };
 
+  // ANALYSE DU MOT DE PASSE EN TEMPS RÉEL
+  useEffect(() => {
+    const newCriteria = {
+      length: password.length >= 6,
+      hasLetter: /[A-Za-z]/.test(password),
+      hasNumber: /\d/.test(password),
+    };
+    setCriteria(newCriteria);
+
+    // Calcul du score (0 à 100)
+    let score = 0;
+    if (newCriteria.length) score += 34;
+    if (newCriteria.hasLetter) score += 33;
+    if (newCriteria.hasNumber) score += 33;
+    
+    // Ajustement si tout est bon mais très court, on reste à 90 pour le style ? Non 100 c'est bien.
+    setPasswordScore(score);
+
+  }, [password]);
+
+  // Couleur de la barre selon le score
+  const getProgressColor = () => {
+    if (passwordScore < 30) return 'error'; // Rouge
+    if (passwordScore < 90) return 'warning'; // Jaune/Orange
+    return 'success'; // Vert
+  };
+
   // Gestion de la soumission du formulaire
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // 1. Vérification du mot de passe
+    // 1. Vérification Robustesse
+    if (passwordScore < 100) {
+      setError('Le mot de passe ne respecte pas les critères de sécurité.');
+      return;
+    }
+
+    // 2. Vérification Correspondance
     if (password !== confirmPassword) {
       setError('Les mots de passe ne correspondent pas.');
       return;
@@ -83,35 +130,28 @@ const RegisterPage = () => {
     setError(null);
 
     try {
-      // 2. TENTATIVE A : Inscription Standard (Délégué/Admin via Code DB)
+      // TENTATIVE A : Inscription Standard
       try {
         const { data } = await api.post('/api/auth/register', {
           email,
           password,
           registrationCode, 
         });
-        
-        // Succès standard
         finalizeLogin(data);
-        return; // On arrête ici si ça marche
+        return;
 
       } catch (standardError) {
-        // Si l'erreur est "Code invalide", on tente le plan B (Eternal)
-        // Sinon (ex: email déjà pris), on renvoie l'erreur normale
         const msg = standardError.response?.data?.message || '';
         if (!msg.includes('Code') && !msg.includes('code')) {
-           throw standardError; // On relance l'erreur si ce n'est pas un problème de code
+           throw standardError; 
         }
 
-        // 3. TENTATIVE B : Inscription Eternal (Via Clé .env)
-        // On utilise le même champ 'registrationCode' comme 'eternalKey'
+        // TENTATIVE B : Inscription Eternal
         const { data: eternalData } = await api.post('/api/auth/register-eternal', {
           email,
           password,
           eternalKey: registrationCode, 
         });
-
-        // Succès Eternal
         finalizeLogin(eternalData);
       }
 
@@ -121,18 +161,32 @@ const RegisterPage = () => {
     }
   };
 
-  // Fonction commune pour connecter et rediriger
   const finalizeLogin = (userData) => {
     login(userData);
     setLoading(false);
-    
     if (userData.role === 'delegue') {
       navigate('/delegue/creer');
     } else {
-      // Superadmin ou Eternal -> Dashboard
       navigate('/superadmin/dashboard');
     }
   };
+
+  // Composant item de liste pour les critères
+  const CriteriaItem = ({ met, label }) => (
+    <ListItem dense sx={{ py: 0 }}>
+      <ListItemIcon sx={{ minWidth: 30 }}>
+        {met ? <CheckCircle color="success" fontSize="small" /> : <RadioButtonUnchecked color="action" fontSize="small" />}
+      </ListItemIcon>
+      <ListItemText 
+        primary={label} 
+        primaryTypographyProps={{ 
+          variant: 'caption', 
+          color: met ? 'text.primary' : 'text.secondary',
+          sx: { textDecoration: met ? 'none' : 'none' }
+        }} 
+      />
+    </ListItem>
+  );
 
   return (
     <PageTransition>
@@ -140,7 +194,6 @@ const RegisterPage = () => {
         <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ fontWeight: 'bold' }}>
           Inscription
         </Typography>
-        {/* TITRE MODIFIÉ ICI */}
         <Typography gutterBottom align="center" sx={{ mb: 3 }}>
           Pour Délégués
         </Typography>
@@ -158,7 +211,7 @@ const RegisterPage = () => {
             sx={{ ...pillTextFieldSx, mb: 2 }}
           />
           
-          {/* Code d'inscription (Smart Field) */}
+          {/* Code d'inscription */}
           <TextField
             type="text"
             label="Code d'invitation"
@@ -180,8 +233,7 @@ const RegisterPage = () => {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
-            sx={{ ...pillTextFieldSx, mb: 2 }}
-            helperText="Minimum 6 caractères."
+            sx={{ ...pillTextFieldSx, mb: 1 }} // Réduit la marge pour coller à la barre
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end" sx={{ mr: 1 }}>
@@ -193,6 +245,36 @@ const RegisterPage = () => {
             }}
           />
 
+          {/* BARRE DE SÉCURITÉ & CRITÈRES */}
+          <Box sx={{ mb: 2, px: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+               <Typography variant="caption" sx={{ flexGrow: 1, fontWeight: 'bold', color: 'text.secondary' }}>
+                 Sécurité : {passwordScore < 30 ? 'Faible' : passwordScore < 90 ? 'Moyen' : 'Fort'}
+               </Typography>
+               <Typography variant="caption" fontWeight="bold" color={`${getProgressColor()}.main`}>
+                 {passwordScore}%
+               </Typography>
+            </Box>
+            <LinearProgress 
+              variant="determinate" 
+              value={passwordScore} 
+              color={getProgressColor()}
+              sx={{ height: 6, borderRadius: 5, mb: 1 }} 
+            />
+            
+            {/* Checklist des exigences */}
+            <List disablePadding>
+              <CriteriaItem met={criteria.length} label="Au moins 6 caractères" />
+              <CriteriaItem met={criteria.hasLetter} label="Au moins une lettre" />
+              <CriteriaItem met={criteria.hasNumber} label="Au moins un chiffre" />
+            </List>
+            
+            {/* Note discrète sur les caractères spéciaux */}
+            <Typography variant="caption" display="block" sx={{ mt: 0.5, color: 'text.disabled', fontSize: '0.7rem', px: 2 }}>
+              Caractères spéciaux acceptés : @ $ ! % * # ? &
+            </Typography>
+          </Box>
+
           {/* Confirmer Mot de passe */}
           <TextField
             type={showPassword ? 'text' : 'password'}
@@ -203,13 +285,15 @@ const RegisterPage = () => {
             onChange={(e) => setConfirmPassword(e.target.value)}
             disabled={loading}
             error={Boolean(error && error.includes('correspondent'))}
-            sx={pillTextFieldSx}
+            sx={{ ...pillTextFieldSx, mb: 2 }}
           />
 
           {error && (
-            <Alert severity="error" sx={{ mt: 2, borderRadius: '16px' }}>
-              {error}
-            </Alert>
+            <Fade in={true}>
+              <Alert severity="error" sx={{ mt: 2, mb: 2, borderRadius: '16px' }}>
+                {error}
+              </Alert>
+            </Fade>
           )}
 
           <Button
@@ -217,8 +301,9 @@ const RegisterPage = () => {
             variant="contained"
             fullWidth
             size="large"
-            disabled={loading}
-            sx={{ mt: 3, mb: 2, ...pillButtonSx('success') }}
+            // On désactive le bouton tant que ce n'est pas à 100% (Optionnel mais recommandé)
+            disabled={loading || passwordScore < 100}
+            sx={{ mt: 1, mb: 2, ...pillButtonSx(passwordScore === 100 ? 'success' : 'primary') }}
           >
             {loading ? <CircularProgress size={24} color="inherit" /> : "S'inscrire"}
           </Button>
