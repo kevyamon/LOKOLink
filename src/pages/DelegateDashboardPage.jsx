@@ -1,212 +1,230 @@
-// src/pages/DelegateDashboardPage.jsx
+// src/pages/DelegateSessionsPage.jsx
 
 import React, { useState, useEffect } from 'react';
 import {
   Typography,
+  Container,
   Box,
-  Button,
   CircularProgress,
   Alert,
+  Grid,
   Card,
   CardContent,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemAvatar,
-  Avatar,
-  Chip,
+  CardActionArea,
   IconButton,
-  Tooltip,
-  Badge,
+  Stack,
+  Chip,
+  Button,
+  Tooltip
 } from '@mui/material';
 import { 
-  ContentCopy, 
-  Person, 
-  WhatsApp, 
-  Check, 
-  QrCode2,
-  GroupAdd
+  DeleteForever, 
+  Add, 
+  HelpOutline // <--- Icône pour le Guide
 } from '@mui/icons-material';
-import { useParams, useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import socket from '../services/socket'; // Notre connexion temps réel
-import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
+import AnimatedModal from '../components/AnimatedModal';
 
-const DelegateDashboardPage = () => {
-  const { id } = useParams();
+const DelegateSessionsPage = () => {
   const navigate = useNavigate();
-
-  const [session, setSession] = useState(null);
+  const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [copied, setCopied] = useState(false);
 
-  // 1. Charger les données initiales
+  // État pour le Guide
+  const [guideOpen, setGuideOpen] = useState(false);
+
+  // États pour la suppression
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState(null);
+  const [password, setPassword] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+
   useEffect(() => {
-    const fetchSessionData = async () => {
-      try {
-        const { data } = await api.get(`/api/sessions/my-session/${id}`);
-        setSession(data);
-        setLoading(false);
-      } catch (err) {
-        console.error(err);
-        setError(err.response?.data?.message || "Impossible de charger la session.");
-        setLoading(false);
-      }
-    };
+    fetchMySessions();
+  }, []);
 
-    fetchSessionData();
-
-    // 2. Écouter les mises à jour en temps réel (Socket.io)
-    socket.on('session:updated', (updatedSession) => {
-      // On vérifie que c'est bien NOTRE session qui a bougé
-      if (updatedSession._id === id) {
-        setSession(updatedSession);
-      }
-    });
-
-    // Nettoyage quand on quitte la page
-    return () => {
-      socket.off('session:updated');
-    };
-  }, [id]);
-
-  const handleCopyLink = () => {
-    // Générer le lien d'invitation
-    const inviteLink = `${window.location.origin}/rejoindre/${session.sessionCode}`;
-    navigator.clipboard.writeText(inviteLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const fetchMySessions = async () => {
+    try {
+      const { data } = await api.get('/api/sessions/my-sessions');
+      setSessions(data);
+      setLoading(false);
+    } catch (err) {
+      setError("Impossible de charger vos sessions.");
+      setLoading(false);
+    }
   };
 
-  if (loading) {
-    return (
-      <PageTransition>
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
-          <CircularProgress />
-        </Box>
-      </PageTransition>
-    );
-  }
+  const handleCardClick = (sessionId) => {
+    navigate(`/delegue/dashboard/${sessionId}`);
+  };
 
-  if (error) {
-    return (
-      <PageTransition>
-        <FormContainer maxWidth="sm">
-          <Alert severity="error">{error}</Alert>
-          <Button onClick={() => navigate('/')} sx={{ mt: 2 }}>Retour Accueil</Button>
-        </FormContainer>
-      </PageTransition>
-    );
-  }
+  const handleDeleteClick = (e, session) => {
+    e.stopPropagation();
+    setSessionToDelete(session);
+    setDeleteModalOpen(true);
+    setPassword('');
+    setDeleteError(null);
+  };
+
+  const handleFinalDelete = async (e) => {
+    e.preventDefault();
+    setDeleteLoading(true);
+    try {
+        await api.delete(`/api/sessions/${sessionToDelete._id}`, {
+            data: { password } 
+        });
+        setDeleteModalOpen(false);
+        setPassword('');
+        fetchMySessions(); 
+    } catch (err) {
+        setDeleteError(err.response?.data?.message || "Erreur mot de passe");
+    } finally {
+        setDeleteLoading(false);
+    }
+  };
+
+  if (loading) return <PageTransition><Container sx={{textAlign:'center', mt:10}}><CircularProgress /></Container></PageTransition>;
 
   return (
     <PageTransition>
-      <FormContainer maxWidth="md">
-        {/* EN-TÊTE DU DASHBOARD */}
-        <Box sx={{ textAlign: 'center', mb: 4 }}>
-          <Typography variant="overline" sx={{ fontWeight: 'bold', letterSpacing: 2, color: 'text.secondary' }}>
-            TABLEAU DE BORD DÉLÉGUÉ
-          </Typography>
-          <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold', mt: 1 }}>
-            {session.sessionName}
-          </Typography>
-          <Chip 
-            label={session.isActive ? "SESSION ACTIVE" : "SESSION TERMINÉE"} 
-            color={session.isActive ? "success" : "default"}
-            sx={{ mt: 1, fontWeight: 'bold' }} 
-          />
-        </Box>
-
-        {/* CARTES D'ACTION */}
-        <Card sx={{ mb: 4, borderRadius: '20px', bgcolor: '#e3f2fd', boxShadow: 'none', border: '1px solid #bbdefb' }}>
-          <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-            <Box>
-              <Typography variant="h6" fontWeight="bold" color="primary.main">
-                <GroupAdd sx={{ verticalAlign: 'middle', mr: 1 }} />
-                Inviter des Parrains
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Partagez ce lien dans le groupe WhatsApp de la classe.
-              </Typography>
+      <Container maxWidth="lg">
+        {/* EN-TÊTE AVEC BOUTON GUIDE */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4, mt: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h4" component="h1" fontWeight="bold">
+                    Mes Sessions
+                </Typography>
+                <Tooltip title="Comment ça marche ?">
+                    <IconButton onClick={() => setGuideOpen(true)} color="primary">
+                        <HelpOutline />
+                    </IconButton>
+                </Tooltip>
             </Box>
-            <Button
-              variant="contained"
-              onClick={handleCopyLink}
-              startIcon={copied ? <Check /> : <ContentCopy />}
-              color={copied ? "success" : "primary"}
-              sx={{ borderRadius: '50px', fontWeight: 'bold', textTransform: 'none' }}
+
+            <Button 
+                variant="contained" 
+                startIcon={<Add />} 
+                onClick={() => navigate('/delegue/creer')}
+                sx={{ borderRadius: '50px', fontWeight: 'bold' }}
             >
-              {copied ? "Lien Copié !" : "Copier le lien d'invitation"}
+                Créer
             </Button>
-          </CardContent>
-        </Card>
-
-        {/* STATISTIQUES RAPIDES */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2, px: 1 }}>
-          <Typography variant="h6" fontWeight="bold">
-            Parrains Inscrits ({session.sponsors.length})
-          </Typography>
-          {/* Ici on pourrait ajouter un bouton pour vider la liste ou exporter */}
         </Box>
 
-        {/* LISTE DES PARRAINS EN TEMPS RÉEL */}
-        <List sx={{ bgcolor: 'background.paper', borderRadius: '16px', overflow: 'hidden' }}>
-          <AnimatePresence>
-            {/* On inverse la liste pour voir les derniers inscrits en haut */}
-            {[...session.sponsors].reverse().map((sponsor, index) => (
-              <motion.div
-                key={index} // Idéalement utiliser un ID unique si dispo, sinon index est ok pour l'affichage simple
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <ListItem 
-                  divider 
-                  secondaryAction={
-                    <Tooltip title="Contacter sur WhatsApp">
-                      <IconButton edge="end" aria-label="whatsapp" href={`https://wa.me/225${sponsor.phone.replace(/\s/g, '')}`} target="_blank">
-                        <WhatsApp color="success" />
-                      </IconButton>
-                    </Tooltip>
-                  }
-                >
-                  <ListItemAvatar>
-                    <Avatar sx={{ bgcolor: '#1976d2' }}>
-                      <Person />
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={
-                      <Typography variant="subtitle1" fontWeight="bold">
-                        {sponsor.name}
-                      </Typography>
-                    }
-                    secondary={sponsor.phone}
-                  />
-                  {/* Badge "Nouveau" si c'est le tout premier de la liste inversée (le dernier ajouté) */}
-                  {index === 0 && (
-                    <Chip label="Nouveau" color="secondary" size="small" sx={{ mr: 2 }} />
-                  )}
-                </ListItem>
-              </motion.div>
+        {sessions.length === 0 ? (
+            <Alert severity="info" sx={{ borderRadius: '12px' }}>
+                Vous n'avez créé aucune session pour le moment. Cliquez sur "Créer" pour commencer.
+            </Alert>
+        ) : (
+            <Grid container spacing={3}>
+            {sessions.map((session) => (
+                <Grid item xs={12} sm={6} md={4} key={session._id}>
+                <Card sx={{ 
+                    borderRadius: '16px', 
+                    boxShadow: session.isActive ? 3 : 1,
+                    opacity: session.isActive ? 1 : 0.7,
+                    border: session.isActive ? '1px solid transparent' : '1px dashed gray',
+                    transition: '0.3s',
+                    '&:hover': { transform: 'translateY(-4px)' }
+                }}>
+                    <CardActionArea onClick={() => handleCardClick(session._id)} sx={{ height: '100%' }}>
+                    <CardContent>
+                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                            <Box>
+                                <Typography variant="h6" fontWeight="bold">{session.sessionName}</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                    Code : <strong>{session.sessionCode}</strong>
+                                </Typography>
+                                <Typography variant="caption" display="block" mt={1} color="primary">
+                                    {session.sponsors.length} Parrains inscrits
+                                </Typography>
+                            </Box>
+                            <Chip 
+                                label={session.isActive ? "Active" : "Terminée"} 
+                                color={session.isActive ? "success" : "default"} 
+                                size="small" 
+                            />
+                        </Stack>
+                    </CardContent>
+                    </CardActionArea>
+                    
+                    {/* Zone Actions */}
+                    {session.isActive && (
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1, borderTop: '1px solid #eee' }}>
+                            <Tooltip title="Désactiver la session">
+                                <IconButton size="small" color="error" onClick={(e) => handleDeleteClick(e, session)}>
+                                    <DeleteForever />
+                                </IconButton>
+                            </Tooltip>
+                        </Box>
+                    )}
+                </Card>
+                </Grid>
             ))}
-          </AnimatePresence>
-          
-          {session.sponsors.length === 0 && (
-            <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-              <Typography>Aucun parrain pour le moment.</Typography>
-              <Typography variant="caption">Partagez le lien pour commencer !</Typography>
-            </Box>
-          )}
-        </List>
+            </Grid>
+        )}
 
-      </FormContainer>
+        {/* --- MODAL GUIDE DÉLÉGUÉ --- */}
+        <AnimatedModal open={guideOpen} onClose={() => setGuideOpen(false)}>
+            <Typography variant="h5" gutterBottom fontWeight="bold" align="center" color="primary">
+                Guide Délégué 🎓
+            </Typography>
+            <Box sx={{ mt: 3 }}>
+                <Typography variant="subtitle1" fontWeight="bold">1. Création 🛠️</Typography>
+                <Typography variant="body2" paragraph color="text.secondary">
+                    Cliquez sur <strong>"Créer"</strong>. Donnez un nom à votre session (ex: IACC 2025) et inventez un <strong>Code LOKO</strong> (ex: IACC25).
+                </Typography>
+
+                <Typography variant="subtitle1" fontWeight="bold">2. Recrutement 📢</Typography>
+                <Typography variant="body2" paragraph color="text.secondary">
+                    Une fois créée, ouvrez la session. Copiez le <strong>Lien d'Invitation</strong> et envoyez-le dans le groupe WhatsApp de votre classe (2ème année). Les parrains s'inscrivent eux-mêmes.
+                </Typography>
+
+                <Typography variant="subtitle1" fontWeight="bold">3. Le Jour J (Binômage) 🤝</Typography>
+                <Typography variant="body2" paragraph color="text.secondary">
+                    Passez voir les 1ère année. Écrivez le <strong>Code LOKO</strong> au tableau. Dites-leur d'aller sur le site, d'entrer leur nom et ce code. Le parrain est trouvé instantanément !
+                </Typography>
+            </Box>
+            <Button fullWidth variant="contained" onClick={() => setGuideOpen(false)} sx={{ mt: 4, borderRadius: '50px' }}>
+                C'est compris !
+            </Button>
+        </AnimatedModal>
+
+        {/* --- MODAL SUPPRESSION --- */}
+        <AnimatedModal open={deleteModalOpen} onClose={() => setDeleteModalOpen(false)}>
+            <Typography variant="h6" gutterBottom color="error" fontWeight="bold">
+                Terminer la session ?
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+                Cela rendra la session invisible pour les étudiants.
+                Pour confirmer, entrez votre mot de passe de connexion.
+            </Typography>
+            <Box component="form" onSubmit={handleFinalDelete}>
+                <input 
+                    type="password" 
+                    placeholder="Votre mot de passe" 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    style={{ width: '100%', padding: '12px', marginBottom: '15px', borderRadius: '8px', border: '1px solid #ccc' }}
+                    required
+                />
+                {deleteError && <Typography color="error" variant="caption" display="block" mb={2}>{deleteError}</Typography>}
+                <Stack direction="row" spacing={2} justifyContent="flex-end">
+                    <Button onClick={() => setDeleteModalOpen(false)}>Annuler</Button>
+                    <Button type="submit" variant="contained" color="error" disabled={deleteLoading}>
+                        {deleteLoading ? <CircularProgress size={20} color="inherit"/> : "Confirmer"}
+                    </Button>
+                </Stack>
+            </Box>
+        </AnimatedModal>
+
+      </Container>
     </PageTransition>
   );
 };
 
-export default DelegateDashboardPage;
+export default DelegateSessionsPage;
