@@ -14,24 +14,25 @@ import {
   IconButton,
   Tooltip,
   Badge,
+  Button,
+  Chip,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
+  Avatar,
 } from '@mui/material';
-import { 
-  ContentCopy, 
-  Person, 
-  WhatsApp, 
-  Check, 
-  QrCode2,
-  GroupAdd
-} from '@mui/icons-material';
+import { Add, ContentCopy, Person, WhatsApp, Check, QrCode2, GroupAdd } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import socket from '../services/socket'; // Notre connexion temps réel
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
-
 const DelegateSessionsPage = () => {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState([]);
+  const [session, setSession] = useState({ sessionName: '', sponsors: [], isActive: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -45,6 +46,9 @@ const DelegateSessionsPage = () => {
     try {
       const { data } = await api.get('/api/sessions/my-sessions');
       setSessions(data);
+      if (data.length > 0) {
+        setSession(data[0]);
+      }
       setLoading(false);
     } catch (err) {
       setError("Impossible de charger vos sessions.");
@@ -52,12 +56,10 @@ const DelegateSessionsPage = () => {
     }
   };
 
-    fetchSessionData();
-
-    // 2. Écouter les mises à jour en temps réel (Socket.io)
+  // 2. Écouter les mises à jour en temps réel (Socket.io)
+  useEffect(() => {
     socket.on('session:updated', (updatedSession) => {
-      // On vérifie que c'est bien NOTRE session qui a bougé
-      if (updatedSession._id === id) {
+      if (updatedSession._id === session._id) {
         setSession(updatedSession);
       }
     });
@@ -66,7 +68,7 @@ const DelegateSessionsPage = () => {
     return () => {
       socket.off('session:updated');
     };
-  }, [id]);
+  }, [session._id]);
 
   const handleCopyLink = () => {
     // Générer le lien d'invitation
@@ -196,7 +198,8 @@ const DelegateSessionsPage = () => {
               <Typography>Aucun parrain pour le moment.</Typography>
               <Typography variant="caption">Partagez le lien pour commencer !</Typography>
             </Box>
-        </AnimatedModal>
+          )}
+        </List>
 
       </FormContainer>
     </PageTransition>
