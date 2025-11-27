@@ -17,22 +17,23 @@ import {
   Chip,
   IconButton,
   Tooltip,
-  Badge,
+  Stack,
 } from '@mui/material';
 import { 
   ContentCopy, 
   Person, 
   WhatsApp, 
   Check, 
-  QrCode2,
-  GroupAdd
+  GroupAdd,
+  HelpOutline // <--- Icône Aide
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import api from '../services/api';
-import socket from '../services/socket'; // Notre connexion temps réel
+import socket from '../services/socket';
 import FormContainer from '../components/FormContainer';
 import { PageTransition } from '../components/PageTransition';
+import AnimatedModal from '../components/AnimatedModal'; // <--- Import Modal
 
 const DelegateDashboardPage = () => {
   const { id } = useParams();
@@ -42,8 +43,10 @@ const DelegateDashboardPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
+  
+  // État pour le Guide
+  const [guideOpen, setGuideOpen] = useState(false);
 
-  // 1. Charger les données initiales
   useEffect(() => {
     const fetchSessionData = async () => {
       try {
@@ -59,22 +62,18 @@ const DelegateDashboardPage = () => {
 
     fetchSessionData();
 
-    // 2. Écouter les mises à jour en temps réel (Socket.io)
     socket.on('session:updated', (updatedSession) => {
-      // On vérifie que c'est bien NOTRE session qui a bougé
       if (updatedSession._id === id) {
         setSession(updatedSession);
       }
     });
 
-    // Nettoyage quand on quitte la page
     return () => {
       socket.off('session:updated');
     };
   }, [id]);
 
   const handleCopyLink = () => {
-    // Générer le lien d'invitation
     const inviteLink = `${window.location.origin}/rejoindre/${session.sessionCode}`;
     navigator.clipboard.writeText(inviteLink);
     setCopied(true);
@@ -106,13 +105,21 @@ const DelegateDashboardPage = () => {
     <PageTransition>
       <FormContainer maxWidth="md">
         {/* EN-TÊTE DU DASHBOARD */}
-        <Box sx={{ textAlign: 'center', mb: 4 }}>
+        <Box sx={{ textAlign: 'center', mb: 4, position: 'relative' }}>
           <Typography variant="overline" sx={{ fontWeight: 'bold', letterSpacing: 2, color: 'text.secondary' }}>
             TABLEAU DE BORD DÉLÉGUÉ
           </Typography>
-          <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold', mt: 1 }}>
-            {session.sessionName}
-          </Typography>
+          
+          {/* Titre + Bouton Aide */}
+          <Box display="flex" alignItems="center" justifyContent="center" gap={1} mt={1}>
+            <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
+              {session.sessionName}
+            </Typography>
+            <IconButton onClick={() => setGuideOpen(true)} color="primary">
+              <HelpOutline />
+            </IconButton>
+          </Box>
+
           <Chip 
             label={session.isActive ? "SESSION ACTIVE" : "SESSION TERMINÉE"} 
             color={session.isActive ? "success" : "default"}
@@ -149,16 +156,14 @@ const DelegateDashboardPage = () => {
           <Typography variant="h6" fontWeight="bold">
             Parrains Inscrits ({session.sponsors.length})
           </Typography>
-          {/* Ici on pourrait ajouter un bouton pour vider la liste ou exporter */}
         </Box>
 
         {/* LISTE DES PARRAINS EN TEMPS RÉEL */}
         <List sx={{ bgcolor: 'background.paper', borderRadius: '16px', overflow: 'hidden' }}>
           <AnimatePresence>
-            {/* On inverse la liste pour voir les derniers inscrits en haut */}
             {[...session.sponsors].reverse().map((sponsor, index) => (
               <motion.div
-                key={index} // Idéalement utiliser un ID unique si dispo, sinon index est ok pour l'affichage simple
+                key={index} 
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, height: 0 }}
@@ -187,7 +192,6 @@ const DelegateDashboardPage = () => {
                     }
                     secondary={sponsor.phone}
                   />
-                  {/* Badge "Nouveau" si c'est le tout premier de la liste inversée (le dernier ajouté) */}
                   {index === 0 && (
                     <Chip label="Nouveau" color="secondary" size="small" sx={{ mr: 2 }} />
                   )}
@@ -203,6 +207,33 @@ const DelegateDashboardPage = () => {
             </Box>
           )}
         </List>
+
+        {/* MODAL GUIDE */}
+        <AnimatedModal open={guideOpen} onClose={() => setGuideOpen(false)}>
+          <Typography variant="h6" gutterBottom fontWeight="bold">
+            Guide Délégué 🎓
+          </Typography>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" fontWeight="bold" gutterBottom>1. Recruter les Parrains :</Typography>
+            <Typography variant="body2" paragraph>
+              Cliquez sur "Copier le lien d'invitation" et collez-le dans le groupe WhatsApp de votre classe (2ème année). Les volontaires s'inscriront eux-mêmes.
+            </Typography>
+
+            <Typography variant="subtitle2" fontWeight="bold" gutterBottom>2. Le Jour J (En classe de 1ère année) :</Typography>
+            <Typography variant="body2" paragraph>
+              Écrivez le <strong>Code LOKO : {session.sessionCode}</strong> au tableau.
+              Dites aux nouveaux d'aller sur le site, d'entrer leur nom et ce code.
+            </Typography>
+
+            <Typography variant="subtitle2" fontWeight="bold" gutterBottom>3. Suivi :</Typography>
+            <Typography variant="body2">
+              Surveillez cette page. Les parrains s'affichent en temps réel. Une fois la séance finie, vous pourrez fermer la session (bientôt disponible).
+            </Typography>
+          </Box>
+          <Button fullWidth variant="contained" onClick={() => setGuideOpen(false)} sx={{ mt: 3, borderRadius: '50px' }}>
+            Compris !
+          </Button>
+        </AnimatedModal>
 
       </FormContainer>
     </PageTransition>
